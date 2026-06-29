@@ -11,6 +11,10 @@ export default function DashboardPage() {
   const [officers, setOfficers] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Database Connection and Size States
+  const [dbStatus, setDbStatus] = useState('CHECKING'); // 'CONNECTED' | 'DISCONNECTED' | 'CHECKING'
+  const [dbSize, setDbSize] = useState({ size_mb: 0.02, is_almost_full: false });
+
   // Filter & Search State
   const [activeTab, setActiveTab] = useState('Prospek'); // 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'
   const [searchQuery, setSearchQuery] = useState('');
@@ -255,6 +259,43 @@ export default function DashboardPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Check Supabase connection and size
+  useEffect(() => {
+    if (!user) return;
+    if (user.isMock) {
+      setDbStatus('CONNECTED');
+      return;
+    }
+
+    const checkConnection = async () => {
+      try {
+        const { error: connError } = await supabase.from('prospects').select('id').limit(1);
+        if (connError) throw connError;
+        setDbStatus('CONNECTED');
+
+        const { data: sizeData, error: sizeError } = await supabase.rpc('get_db_size');
+        if (!sizeError && sizeData) {
+          setDbSize({
+            size_mb: Number(sizeData.size_mb),
+            is_almost_full: Boolean(sizeData.is_almost_full)
+          });
+        } else {
+          // Fallback estimate based on number of prospects if RPC is not available
+          const estimateMb = Math.max(0.01, (prospects.length * 0.002)).toFixed(3);
+          setDbSize({
+            size_mb: Number(estimateMb),
+            is_almost_full: false
+          });
+        }
+      } catch (err) {
+        console.error('Database connection check failed:', err);
+        setDbStatus('DISCONNECTED');
+      }
+    };
+
+    checkConnection();
+  }, [user, prospects]);
 
   // Logout
   function handleLogout() {
@@ -814,11 +855,34 @@ export default function DashboardPage() {
       <header className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 className="text-gradient" style={{ fontSize: '1.75rem' }}>ACC Prospect Tracker</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-            Masuk sebagai: <strong>{user.name}</strong> ({user.role === 'coordinator' ? 'Coordinator' : 'Officer'})
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
+              Masuk sebagai: <strong>{user.name}</strong> ({user.role === 'coordinator' ? 'Coordinator' : 'Officer'})
+            </p>
+            <span style={{ color: 'rgba(255, 255, 255, 0.15)' }} className="desktop-only">|</span>
+            
+            {/* Supabase Connection Status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', fontWeight: '600' }}>
+              <span style={{ 
+                width: '6px', 
+                height: '6px', 
+                borderRadius: '50%', 
+                backgroundColor: user.isMock ? '#3b82f6' : (dbStatus === 'CONNECTED' ? '#10b981' : dbStatus === 'DISCONNECTED' ? '#ef4444' : '#e2e8f0'),
+                display: 'inline-block' 
+              }} />
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {user.isMock ? 'Local Memory Connected' : (dbStatus === 'CONNECTED' ? 'Supabase Connected' : dbStatus === 'DISCONNECTED' ? 'Supabase Offline' : 'Mengecek...')}
+              </span>
+            </div>
+
+            {/* Storage Info */}
+            <span style={{ color: 'rgba(255, 255, 255, 0.15)' }} className="desktop-only">|</span>
+            <div style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
+              Memori Sisa: {user.isMock ? '499.98 MB' : `${(500 - dbSize.size_mb).toFixed(2)} MB`} / 500 MB
+            </div>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
           {user.role === 'officer' && (
             <button className="btn btn-primary" onClick={openAddProspek} style={{ width: 'auto' }}>
               + Input Data Baru
@@ -1203,7 +1267,7 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
             <button onClick={handleSendWA} className="btn-wa">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.504-5.727-1.465L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.725 1.45 5.524 0 10.014-4.482 10.017-9.992.002-2.67-1.033-5.18-2.915-7.065C16.592 1.76 14.086.724 11.42.724c-5.527 0-10.017 4.483-10.02 9.993-.002 1.832.486 3.62 1.414 5.2l-.995 3.635 3.738-.978zm13.11-6.19c-.31-.156-1.834-.905-2.11-.101-.277.1-.476.4-.585.525-.107.124-.22.186-.53.03-.31-.156-1.31-.482-2.496-1.54-1.185-1.057-1.983-2.362-2.294-2.877-.31-.515-.033-.793.224-1.05.23-.23.31-.362.467-.543.156-.18.22-.31.328-.515.11-.206.054-.387-.028-.543-.082-.156-.74-1.785-1.012-2.446-.267-.64-.54-.554-.74-.564-.19-.01-.41-.01-.63-.01-.22 0-.58.082-.884.412-.305.33-1.165 1.14-1.165 2.78 0 1.64 1.196 3.22 1.36 3.447.166.227 2.35 3.593 5.698 5.034.797.343 1.418.548 1.904.704.8.254 1.53.218 2.103.13.64-.097 1.834-.75 2.09-1.474.257-.725.257-1.345.18-1.474-.077-.13-.284-.207-.596-.363z"/>
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
               </svg>
               Kirim Laporan WA
             </button>
