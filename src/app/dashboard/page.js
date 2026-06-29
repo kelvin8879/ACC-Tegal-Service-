@@ -42,6 +42,58 @@ export default function DashboardPage() {
     note: '',
   });
 
+  const [activeInputTab, setActiveInputTab] = useState('Prospek');
+  const [contacting, setContacting] = useState([]);
+  const [contactingForm, setContactingForm] = useState({
+    call: '',
+    blasting: '',
+  });
+
+  // Date Filter for Officer Performance Table
+  const [perfQuickFilter, setPerfQuickFilter] = useState('month'); // 'today' | 'month' | 'custom'
+  const [filterOfficerPerf, setFilterOfficerPerf] = useState('');
+
+  // Chart 1 Metric Visibility Toggles
+  const [showCallLine, setShowCallLine] = useState(true);
+  const [showBlastingLine, setShowBlastingLine] = useState(true);
+  const [showProspekLine, setShowProspekLine] = useState(true);
+
+  // Chart 2 (Pipeline) Metric Visibility Toggles
+  const [showPipeProspek, setShowPipeProspek] = useState(true);
+  const [showPipeAplikasiIn, setShowPipeAplikasiIn] = useState(true);
+  const [showPipeAplikasiValid, setShowPipeAplikasiValid] = useState(true);
+
+  // Date Filter for Monitoring Aplikasi
+  const [appQuickFilter, setAppQuickFilter] = useState('month'); // 'today' | 'month' | 'custom'
+
+  // Get today's business date
+  const getTodayBusinessDateStr = () => {
+    const now = new Date();
+    const shifted = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+    return shifted.toISOString().split('T')[0];
+  };
+
+  const getStartOfMonthStr = () => {
+    const todayStr = getTodayBusinessDateStr();
+    return todayStr.slice(0, 8) + '01';
+  };
+
+  const [perfStartDate, setPerfStartDate] = useState(getStartOfMonthStr());
+  const [perfEndDate, setPerfEndDate] = useState(getTodayBusinessDateStr());
+
+  // Date Filter for Tren Pipeline Aplikasi (Chart 2)
+  const [pipeQuickFilter, setPipeQuickFilter] = useState('7days'); // '7days' | '15days' | '30days' | 'custom'
+  const [pipeStartDate, setPipeStartDate] = useState(getStartOfMonthStr());
+  const [pipeEndDate, setPipeEndDate] = useState(getTodayBusinessDateStr());
+
+  // Date Filter for Tren Aktivitas & Prospek (Chart 1)
+  const [actQuickFilter, setActQuickFilter] = useState('7days'); // '7days' | '15days' | '30days' | 'custom'
+  const [actStartDate, setActStartDate] = useState(getStartOfMonthStr());
+  const [actEndDate, setActEndDate] = useState(getTodayBusinessDateStr());
+
+  const [appStartDate, setAppStartDate] = useState(getStartOfMonthStr());
+  const [appEndDate, setAppEndDate] = useState(getTodayBusinessDateStr());
+
   // 2. Lengkapi/Edit Data Form (For Aplikasi IN)
   const [inForm, setInForm] = useState({
     segment: '',
@@ -92,6 +144,22 @@ export default function DashboardPage() {
       return false;
     }
   }, []);
+
+  const getBusinessDateString = (createdAtStr) => {
+    if (!createdAtStr) return '';
+    try {
+      const date = new Date(createdAtStr);
+      const shiftedDate = new Date(date.getTime() - (3 * 60 * 60 * 1000));
+      return shiftedDate.toISOString().split('T')[0];
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const isDateWithinRange = (dateStr, startDate, endDate) => {
+    if (!dateStr) return false;
+    return dateStr >= startDate && dateStr <= endDate;
+  };
 
   // Load Data
   const loadData = useCallback(async () => {
@@ -229,6 +297,24 @@ export default function DashboardPage() {
         localStorage.setItem('acc_officers', JSON.stringify(seedOfficers));
         setOfficers(seedOfficers);
       }
+
+      // Load contacting from localStorage
+      const localContacting = localStorage.getItem('acc_contacting');
+      if (localContacting) {
+        setContacting(JSON.parse(localContacting));
+      } else {
+        const seedContacting = [
+          {
+            id: 'c-1',
+            officer_id: 'mock-1',
+            call_count: 10,
+            blasting_count: 20,
+            created_at: new Date().toISOString(),
+          }
+        ];
+        localStorage.setItem('acc_contacting', JSON.stringify(seedContacting));
+        setContacting(seedContacting);
+      }
     } else {
       // Load from Supabase
       try {
@@ -249,6 +335,24 @@ export default function DashboardPage() {
           .order('name', { ascending: true });
         if (oError) throw oError;
         setOfficers(oData || []);
+
+        // Load contacting from Supabase
+        let cData = [];
+        try {
+          let contactingQuery = supabase.from('contacting').select('*').order('created_at', { ascending: false });
+          if (user.role === 'officer') {
+            contactingQuery = contactingQuery.eq('officer_id', user.id);
+          }
+          const { data, error } = await contactingQuery;
+          if (!error) {
+            cData = data;
+          } else {
+            console.warn('Contacting table might not exist yet:', error.message);
+          }
+        } catch (err) {
+          console.warn('Failed to fetch contacting:', err);
+        }
+        setContacting(cData || []);
       } catch (err) {
         console.error('Error fetching data from Supabase:', err.message);
       }
@@ -334,6 +438,7 @@ export default function DashboardPage() {
   function openAddProspek() {
     setIsEditMode(false);
     setSelectedProspect(null);
+    setActiveInputTab('Prospek');
     setInputForm({
       pengajuan: 'Non Top Up',
       nama: '',
@@ -344,7 +449,54 @@ export default function DashboardPage() {
       blasting: false,
       note: '',
     });
+    setContactingForm({
+      call: '',
+      blasting: '',
+    });
     setIsInputModalOpen(true);
+  }
+
+  // Submit Contacting
+  async function handleAddContacting(e) {
+    e.preventDefault();
+    const callCount = parseInt(contactingForm.call) || 0;
+    const blastingCount = parseInt(contactingForm.blasting) || 0;
+
+    if (callCount < 0 || blastingCount < 0) {
+      return alert('Angka tidak boleh negatif.');
+    }
+    if (callCount === 0 && blastingCount === 0) {
+      return alert('Silakan masukkan jumlah Call atau Blasting.');
+    }
+
+    const newRecord = {
+      officer_id: user.role === 'officer' ? user.id : null,
+      call_count: callCount,
+      blasting_count: blastingCount,
+    };
+
+    if (user.isMock) {
+      const newItem = {
+        ...newRecord,
+        id: 'c-' + Date.now(),
+        created_at: new Date().toISOString(),
+      };
+      const updated = [newItem, ...contacting];
+      localStorage.setItem('acc_contacting', JSON.stringify(updated));
+      setContacting(updated);
+    } else {
+      try {
+        const { error } = await supabase.from('contacting').insert([newRecord]);
+        if (error) throw error;
+        await loadData(); // Reload from Supabase
+      } catch (err) {
+        alert('Gagal menambah data contacting: ' + err.message);
+      }
+    }
+
+    // Reset form and close modal
+    setContactingForm({ call: '', blasting: '' });
+    setIsInputModalOpen(false);
   }
 
   // Submit Add or Edit Prospek
@@ -638,21 +790,43 @@ export default function DashboardPage() {
       ? prospects.filter((p) => p.officer_id === user.id)
       : prospects;
 
+    const relevantContacting = user?.role === 'officer'
+      ? contacting.filter((c) => c.officer_id === user.id)
+      : contacting;
+
     const currentMonthStr = new Date().toISOString().slice(0, 7); // YYYY-MM
+    
+    // Get business day date (shifts at 3 AM)
+    const now = new Date();
+    const businessDate = new Date(now);
+    if (now.getHours() < 3) {
+      businessDate.setDate(businessDate.getDate() - 1);
+    }
+    const todayStr = businessDate.toISOString().split('T')[0];
 
-    // Call (Hari Ini): Created within current business day (shifts at 3 AM) with call = true
-    const countCall = relevantProspects.filter(
-      (p) => p.call === true && isCreatedWithinCurrentBusinessDay(p.created_at)
-    ).length;
+    // Call (Hari Ini): Sum call_count from relevantContacting created within current business day
+    const countCall = relevantContacting
+      .filter((c) => isCreatedWithinCurrentBusinessDay(c.created_at))
+      .reduce((sum, c) => sum + (Number(c.call_count) || 0), 0);
 
-    // Blasting (Hari Ini): Created within current business day (shifts at 3 AM) with blasting = true
-    const countBlasting = relevantProspects.filter(
-      (p) => p.blasting === true && isCreatedWithinCurrentBusinessDay(p.created_at)
-    ).length;
+    // Blasting (Hari Ini): Sum blasting_count from relevantContacting created within current business day
+    const countBlasting = relevantContacting
+      .filter((c) => isCreatedWithinCurrentBusinessDay(c.created_at))
+      .reduce((sum, c) => sum + (Number(c.blasting_count) || 0), 0);
 
     // Prospek (Hari Ini): Created within current business day (shifts at 3 AM) in Prospek pipeline
     const countProspek = relevantProspects.filter(
       (p) => p.pipeline === 'Prospek' && isCreatedWithinCurrentBusinessDay(p.created_at)
+    ).length;
+
+    // Aplikasi IN (Hari Ini): date_in is today
+    const countAplikasiInToday = relevantProspects.filter(
+      (p) => p.date_in === todayStr
+    ).length;
+
+    // Aplikasi Valid (Hari Ini): pipeline is Aplikasi Valid and date_valid is today
+    const countAplikasiValidToday = relevantProspects.filter(
+      (p) => p.pipeline === 'Aplikasi Valid' && p.date_valid === todayStr
     ).length;
 
     // Prospek (Bulan Ini): Created this month in Prospek pipeline
@@ -675,46 +849,137 @@ export default function DashboardPage() {
       return dateToCheck && dateToCheck.startsWith(currentMonthStr);
     }).length;
 
-    return { countCall, countBlasting, countProspek, countProspekMonth, countAplikasiIn, countAplikasiValid };
+    return { 
+      countCall, 
+      countBlasting, 
+      countProspek, 
+      countAplikasiInToday, 
+      countAplikasiValidToday, 
+      countProspekMonth, 
+      countAplikasiIn, 
+      countAplikasiValid 
+    };
   };
 
   const stats = getStats();
 
-  // Compute Officer Performance (for Coordinator - matching daily vs monthly)
+  // Resolve active dates for Performa Officer & Chart
+  const getActivePerfDates = () => {
+    let startDate = perfStartDate;
+    let endDate = perfEndDate;
+
+    if (perfQuickFilter === 'today') {
+      const todayStr = getTodayBusinessDateStr();
+      startDate = todayStr;
+      endDate = todayStr;
+    } else if (perfQuickFilter === 'month') {
+      startDate = getStartOfMonthStr();
+      endDate = getTodayBusinessDateStr();
+    }
+
+    return { startDate, endDate };
+  };
+
+  // Resolve active dates for Tren Aktivitas & Prospek (Chart 1)
+  const getActiveActDates = () => {
+    let startDate = actStartDate;
+    let endDate = actEndDate;
+
+    if (actQuickFilter === '7days') {
+      const today = new Date();
+      const start = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      startDate = startShifted.toISOString().split('T')[0];
+      endDate = endShifted.toISOString().split('T')[0];
+    } else if (actQuickFilter === '15days') {
+      const today = new Date();
+      const start = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      startDate = startShifted.toISOString().split('T')[0];
+      endDate = endShifted.toISOString().split('T')[0];
+    } else if (actQuickFilter === '30days') {
+      const today = new Date();
+      const start = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      startDate = startShifted.toISOString().split('T')[0];
+      endDate = endShifted.toISOString().split('T')[0];
+    }
+
+    return { startDate, endDate };
+  };
+
+  // Resolve active dates for Tren Pipeline Aplikasi (Chart 2)
+  const getActivePipeDates = () => {
+    let startDate = pipeStartDate;
+    let endDate = pipeEndDate;
+
+    if (pipeQuickFilter === '7days') {
+      const today = new Date();
+      const start = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      startDate = startShifted.toISOString().split('T')[0];
+      endDate = endShifted.toISOString().split('T')[0];
+    } else if (pipeQuickFilter === '15days') {
+      const today = new Date();
+      const start = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      startDate = startShifted.toISOString().split('T')[0];
+      endDate = endShifted.toISOString().split('T')[0];
+    } else if (pipeQuickFilter === '30days') {
+      const today = new Date();
+      const start = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      startDate = startShifted.toISOString().split('T')[0];
+      endDate = endShifted.toISOString().split('T')[0];
+    }
+
+    return { startDate, endDate };
+  };
+
+  // Compute Officer Performance (for Coordinator - matching selected period)
   const getOfficerPerformance = () => {
-    const currentMonthStr = new Date().toISOString().slice(0, 7);
-
-    return officers.map((o) => {
+    // Determine active date range
+    const { startDate, endDate } = getActivePerfDates();
+    const filteredOfficers = filterOfficerPerf
+      ? officers.filter((o) => o.id === filterOfficerPerf)
+      : officers;
+    return filteredOfficers.map((o) => {
       const oProspects = prospects.filter((p) => p.officer_id === o.id);
+      const oContacting = contacting.filter((c) => c.officer_id === o.id);
       
-      const call = oProspects.filter(
-        (p) => p.call === true && isCreatedWithinCurrentBusinessDay(p.created_at)
-      ).length;
+      const call = oContacting
+        .filter((c) => {
+          const bizDate = getBusinessDateString(c.created_at);
+          return isDateWithinRange(bizDate, startDate, endDate);
+        })
+        .reduce((sum, c) => sum + (Number(c.call_count) || 0), 0);
 
-      const blasting = oProspects.filter(
-        (p) => p.blasting === true && isCreatedWithinCurrentBusinessDay(p.created_at)
-      ).length;
+      const blasting = oContacting
+        .filter((c) => {
+          const bizDate = getBusinessDateString(c.created_at);
+          return isDateWithinRange(bizDate, startDate, endDate);
+        })
+        .reduce((sum, c) => sum + (Number(c.blasting_count) || 0), 0);
 
-      const prospek = oProspects.filter(
-        (p) => p.pipeline === 'Prospek' && isCreatedWithinCurrentBusinessDay(p.created_at)
-      ).length;
-
-      const prospekMonth = oProspects.filter((p) => {
-        if (p.pipeline !== 'Prospek') return false;
-        const dateToCheck = p.created_at;
-        return dateToCheck && dateToCheck.startsWith(currentMonthStr);
+      const prospek = oProspects.filter((p) => {
+        const bizDate = getBusinessDateString(p.created_at);
+        return p.pipeline === 'Prospek' && isDateWithinRange(bizDate, startDate, endDate);
       }).length;
       
       const aplikasiIn = oProspects.filter((p) => {
-        if (p.pipeline !== 'Aplikasi IN') return false;
-        const dateToCheck = p.date_in || p.created_at;
-        return dateToCheck && dateToCheck.startsWith(currentMonthStr);
+        const dateToCheck = p.date_in || getBusinessDateString(p.created_at);
+        return p.pipeline === 'Aplikasi IN' && isDateWithinRange(dateToCheck, startDate, endDate);
       }).length;
       
       const aplikasiValid = oProspects.filter((p) => {
-        if (p.pipeline !== 'Aplikasi Valid') return false;
-        const dateToCheck = p.date_valid || p.created_at;
-        return dateToCheck && dateToCheck.startsWith(currentMonthStr);
+        const dateToCheck = p.date_valid || getBusinessDateString(p.created_at);
+        return p.pipeline === 'Aplikasi Valid' && isDateWithinRange(dateToCheck, startDate, endDate);
       }).length;
 
       return {
@@ -723,15 +988,121 @@ export default function DashboardPage() {
         call,
         blasting,
         prospek,
-        prospekMonth,
         aplikasiIn,
         aplikasiValid,
-        total: oProspects.length,
       };
     });
   };
 
   const performance = getOfficerPerformance();
+
+  // Compute Daily Trend Chart Data (for Coordinator)
+  const getChartData = () => {
+    const { startDate, endDate } = getActiveActDates();
+
+    const dateArray = [];
+    let currentDate = new Date(startDate);
+    const lastDate = new Date(endDate);
+
+    let safetyCounter = 0;
+    while (currentDate <= lastDate && safetyCounter < 90) {
+      dateArray.push(currentDate.toISOString().split('T')[0]);
+      currentDate.setDate(currentDate.getDate() + 1);
+      safetyCounter++;
+    }
+
+    const filteredProspects = filterOfficerPerf
+      ? prospects.filter((p) => p.officer_id === filterOfficerPerf)
+      : prospects;
+
+    const filteredContacting = filterOfficerPerf
+      ? contacting.filter((c) => c.officer_id === filterOfficerPerf)
+      : contacting;
+
+    return dateArray.map((dateStr) => {
+      const dateObj = new Date(dateStr);
+      const day = dateObj.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
+      const monthLabel = monthNames[dateObj.getMonth()];
+      const label = `${day} ${monthLabel}`;
+
+      const call = filteredContacting
+        .filter((c) => getBusinessDateString(c.created_at) === dateStr)
+        .reduce((sum, c) => sum + (Number(c.call_count) || 0), 0);
+
+      const blasting = filteredContacting
+        .filter((c) => getBusinessDateString(c.created_at) === dateStr)
+        .reduce((sum, c) => sum + (Number(c.blasting_count) || 0), 0);
+
+      const prospek = filteredProspects.filter((p) => {
+        const bizDate = getBusinessDateString(p.created_at);
+        return p.pipeline === 'Prospek' && bizDate === dateStr;
+      }).length;
+
+      return {
+        dateStr,
+        label,
+        call,
+        blasting,
+        prospek
+      };
+    });
+  };
+
+  const chartData = getChartData();
+
+  // Compute Daily Pipeline Chart Data (for Coordinator)
+  const getPipelineChartData = () => {
+    const { startDate, endDate } = getActivePipeDates();
+
+    const dateArray = [];
+    let currentDate = new Date(startDate);
+    const lastDate = new Date(endDate);
+
+    let safetyCounter = 0;
+    while (currentDate <= lastDate && safetyCounter < 90) {
+      dateArray.push(currentDate.toISOString().split('T')[0]);
+      currentDate.setDate(currentDate.getDate() + 1);
+      safetyCounter++;
+    }
+
+    const filteredProspects = filterOfficerPerf
+      ? prospects.filter((p) => p.officer_id === filterOfficerPerf)
+      : prospects;
+
+    return dateArray.map((dateStr) => {
+      const dateObj = new Date(dateStr);
+      const day = dateObj.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agt', 'Sep', 'Okt', 'Nov', 'Des'];
+      const monthLabel = monthNames[dateObj.getMonth()];
+      const label = `${day} ${monthLabel}`;
+
+      const prospek = filteredProspects.filter((p) => {
+        const bizDate = getBusinessDateString(p.created_at);
+        return p.pipeline === 'Prospek' && bizDate === dateStr;
+      }).length;
+
+      const aplikasiIn = filteredProspects.filter((p) => {
+        const bizDate = p.date_in || getBusinessDateString(p.created_at);
+        return p.pipeline === 'Aplikasi IN' && bizDate === dateStr;
+      }).length;
+
+      const aplikasiValid = filteredProspects.filter((p) => {
+        const bizDate = p.date_valid || getBusinessDateString(p.created_at);
+        return p.pipeline === 'Aplikasi Valid' && bizDate === dateStr;
+      }).length;
+
+      return {
+        dateStr,
+        label,
+        prospek,
+        aplikasiIn,
+        aplikasiValid
+      };
+    });
+  };
+
+  const pipelineChartData = getPipelineChartData();
 
   // Filtered Prospects for Display
   const getFilteredProspects = () => {
@@ -749,6 +1120,34 @@ export default function DashboardPage() {
 
     // Filter by pipeline tab
     list = list.filter((p) => p.pipeline === activeTab);
+
+    // Filter by date range (Only for Coordinator)
+    if (user?.role === 'coordinator') {
+      let startDate = appStartDate;
+      let endDate = appEndDate;
+      if (appQuickFilter === 'today') {
+        const todayStr = getTodayBusinessDateStr();
+        startDate = todayStr;
+        endDate = todayStr;
+      } else if (appQuickFilter === 'month') {
+        startDate = getStartOfMonthStr();
+        endDate = getTodayBusinessDateStr();
+      }
+
+      list = list.filter((p) => {
+        if (activeTab === 'Prospek') {
+          const bizDate = getBusinessDateString(p.created_at);
+          return isDateWithinRange(bizDate, startDate, endDate);
+        } else if (activeTab === 'Aplikasi IN') {
+          const dateToCheck = p.date_in || getBusinessDateString(p.created_at);
+          return isDateWithinRange(dateToCheck, startDate, endDate);
+        } else if (activeTab === 'Aplikasi Valid') {
+          const dateToCheck = p.date_valid || getBusinessDateString(p.created_at);
+          return isDateWithinRange(dateToCheck, startDate, endDate);
+        }
+        return true;
+      });
+    }
 
     // Filter by segment
     if (filterSegment) {
@@ -836,9 +1235,232 @@ export default function DashboardPage() {
 
   // Send daily performance report to WhatsApp
   const handleSendWA = () => {
-    const reportText = `Nama : ${user.name}\nCall : ${stats.countCall}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}`;
+    const reportText = `Nama : ${user.name}\nCall : ${stats.countCall}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}\nAplikasi In : ${stats.countAplikasiInToday}\nAplikasi Valid : ${stats.countAplikasiValidToday}`;
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(reportText)}`;
     window.open(waUrl, '_blank');
+  };
+
+  // Download Performa Officer as Excel (CSV)
+  const handleDownloadExcelPerformance = () => {
+    const headers = ['Nama Officer', 'Call', 'Blasting', 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'];
+    const rows = performance.map(perf => [
+      perf.name,
+      perf.call,
+      perf.blasting,
+      perf.prospek,
+      perf.aplikasiIn,
+      perf.aplikasiValid
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    
+    let periodStr = perfQuickFilter;
+    if (perfQuickFilter === 'custom') {
+      periodStr = `${perfStartDate}_to_${perfEndDate}`;
+    }
+    link.setAttribute('download', `performa_officer_${periodStr}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download Monitoring Aplikasi as Excel (CSV)
+  const handleDownloadExcelAplikasi = () => {
+    let headers = [];
+    let rows = [];
+
+    if (activeTab === 'Prospek') {
+      headers = ['Nama Customer', 'Pengajuan', 'Tanggal Input', 'Alamat', 'Status', 'Progress', 'Officer', 'Catatan'];
+      rows = displayedProspects.map(p => {
+        const officerName = officers.find((o) => o.id === p.officer_id)?.name || 'Unassigned';
+        return [
+          p.nama,
+          p.pengajuan,
+          formatDate(p.created_at),
+          p.alamat || '-',
+          p.status || 'Open',
+          p.progress || '-',
+          officerName,
+          formatKeterangan(p.note)
+        ];
+      });
+    } else if (activeTab === 'Aplikasi IN') {
+      headers = ['Nama Customer', 'Segmen', 'No Reg', 'Date IN', 'Status', 'Officer', 'Keterangan'];
+      rows = displayedProspects.map(p => {
+        const officerName = officers.find((o) => o.id === p.officer_id)?.name || 'Unassigned';
+        return [
+          p.nama,
+          p.segment || '-',
+          p.no_reg || '-',
+          formatDate(p.date_in),
+          p.status,
+          officerName,
+          formatKeterangan(p.keterangan)
+        ];
+      });
+    } else { // Aplikasi Valid
+      headers = ['Nama Customer', 'Segmen', 'No Reg', 'Date IN', 'Date Valid', 'Officer', 'Keterangan'];
+      rows = displayedProspects.map(p => {
+        const officerName = officers.find((o) => o.id === p.officer_id)?.name || 'Unassigned';
+        return [
+          p.nama,
+          p.segment || '-',
+          p.no_reg || '-',
+          formatDate(p.date_in),
+          formatDate(p.date_valid),
+          officerName,
+          '' // Clear remarks for Valid prospects as requested
+        ];
+      });
+    }
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `monitoring_aplikasi_${activeTab.toLowerCase().replace(' ', '_')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download All Stages for the Entire Month sorted day-by-day
+  const handleDownloadExcelMonth = () => {
+    const startDate = getStartOfMonthStr();
+    const endDate = getTodayBusinessDateStr();
+
+    // Filter prospects with any activity in this month
+    const monthProspects = prospects.filter(p => {
+      const createdDate = getBusinessDateString(p.created_at);
+      const inDate = p.date_in;
+      const validDate = p.date_valid;
+
+      const isCreatedThisMonth = createdDate >= startDate && createdDate <= endDate;
+      const isInThisMonth = inDate && inDate >= startDate && inDate <= endDate;
+      const isValidThisMonth = validDate && validDate >= startDate && validDate <= endDate;
+
+      return isCreatedThisMonth || isInThisMonth || isValidThisMonth;
+    });
+
+    // Map to daily records sorted by date
+    const rows = monthProspects.map(p => {
+      const officerName = officers.find((o) => o.id === p.officer_id)?.name || 'Unassigned';
+      
+      let primaryDate = '';
+      if (p.pipeline === 'Aplikasi Valid') {
+        primaryDate = p.date_valid || p.date_in || getBusinessDateString(p.created_at);
+      } else if (p.pipeline === 'Aplikasi IN') {
+        primaryDate = p.date_in || getBusinessDateString(p.created_at);
+      } else {
+        primaryDate = getBusinessDateString(p.created_at);
+      }
+
+      return {
+        date: primaryDate,
+        nama: p.nama,
+        tahapan: p.pipeline || 'Prospek',
+        segment: p.segment || '-',
+        no_reg: p.no_reg || '-',
+        date_in: p.date_in ? formatDate(p.date_in) : '-',
+        date_valid: p.date_valid ? formatDate(p.date_valid) : '-',
+        officer: officerName,
+        keterangan: p.pipeline === 'Aplikasi Valid' ? '' : (p.pipeline === 'Prospek' ? formatKeterangan(p.note) : formatKeterangan(p.keterangan))
+      };
+    });
+
+    // Sort chronologically
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+
+    const headers = ['Tanggal Aktivitas', 'Nama Customer', 'Tahapan', 'Segmen', 'No Reg', 'Date IN', 'Date Valid', 'Officer', 'Keterangan/Catatan'];
+    const csvRows = rows.map(r => [
+      formatDate(r.date),
+      r.nama,
+      r.tahapan,
+      r.segment,
+      r.no_reg,
+      r.date_in,
+      r.date_valid,
+      r.officer,
+      r.keterangan
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...csvRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const currentMonthName = monthNames[new Date().getMonth()];
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `data_harian_aplikasi_${currentMonthName.toLowerCase()}_${new Date().getFullYear()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Critical: Delete All Data in Supabase (Prospects, Contacting, Officers) and LocalStorage
+  const handleDeleteAllData = async () => {
+    const firstConfirm = window.confirm("⚠️ PERINGATAN KRITIS: Apakah Anda yakin ingin menghapus SELURUH data di aplikasi ini? Tindakan ini akan menghapus semua nasabah, data aktivitas, dan semua akun officer.");
+    if (!firstConfirm) return;
+
+    const secondConfirm = window.confirm("❗ KONFIRMASI KEDUA: Semua data di database Supabase dan penyimpanan lokal (LocalStorage) akan DIHAPUS BERSIH secara permanen. Anda harus mendaftarkan officer kembali jika ingin memulai baru. Lanjutkan?");
+    if (!secondConfirm) return;
+
+    try {
+      // 1. Delete all prospects
+      const { error: error1 } = await supabase
+        .from('prospects')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 2. Delete all contacting logs
+      const { error: error2 } = await supabase
+        .from('contacting')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 3. Delete all officers
+      const { error: error3 } = await supabase
+        .from('officers')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000');
+
+      // 4. Clear localStorage fallback data
+      localStorage.removeItem('acc_prospects');
+      localStorage.removeItem('acc_officers');
+      localStorage.removeItem('acc_contacting');
+
+      if (error1 || error2 || error3) {
+        throw new Error(error1?.message || error2?.message || error3?.message);
+      }
+
+      alert("🎉 Seluruh database Supabase dan LocalStorage telah dibersihkan total!");
+      window.location.reload();
+    } catch (err) {
+      console.error("Gagal menghapus data:", err);
+      alert(`Gagal menghapus data: ${err.message}`);
+    }
   };
 
   if (loading || !user) {
@@ -854,8 +1476,37 @@ export default function DashboardPage() {
       {/* Header */}
       <header className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 className="text-gradient" style={{ fontSize: '1.75rem' }}>ACC Prospect Tracker</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <h1 className="text-gradient" style={{ fontSize: '1.75rem', margin: 0 }}>ACC Prospect Tracker</h1>
+            
+            {/* Delete All Data Button (Visible only to Coordinators) */}
+            {user.role === 'coordinator' && (
+              <button
+                onClick={handleDeleteAllData}
+                className="btn"
+                style={{
+                  width: 'auto',
+                  padding: '0 0.8rem',
+                  fontSize: '0.85rem',
+                  height: '30px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                  color: '#f87171',
+                  borderRadius: '6px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                title="Hapus semua data di database Supabase"
+              >
+                🗑️ Hapus Semua Data
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', margin: 0 }}>
               Masuk sebagai: <strong>{user.name}</strong> ({user.role === 'coordinator' ? 'Coordinator' : 'Officer'})
             </p>
@@ -932,18 +1583,50 @@ export default function DashboardPage() {
         {/* Section 2: Bulanan (Prospek, Aplikasi IN, Aplikasi Valid) */}
         <div>
           <div style={{ 
-            fontSize: '0.8rem', 
-            textTransform: 'uppercase', 
-            letterSpacing: '0.08em', 
-            color: 'var(--text-secondary)', 
-            marginBottom: '0.75rem', 
-            fontWeight: '700', 
             display: 'flex', 
+            justifyContent: 'space-between', 
             alignItems: 'center', 
-            gap: '0.5rem' 
+            marginBottom: '0.75rem',
+            flexWrap: 'wrap',
+            gap: '0.5rem'
           }}>
-            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span>
-            Bulan Ini ({getCurrentMonthIndonesian()})
+            <div style={{ 
+              fontSize: '0.8rem', 
+              textTransform: 'uppercase', 
+              letterSpacing: '0.08em', 
+              color: 'var(--text-secondary)', 
+              fontWeight: '700', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem' 
+            }}>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--success)' }}></span>
+              Bulan Ini ({getCurrentMonthIndonesian()})
+            </div>
+
+            <button
+              onClick={handleDownloadExcelMonth}
+              className="btn btn-secondary"
+              style={{
+                width: 'auto',
+                padding: '0 0.8rem',
+                fontSize: '0.85rem',
+                height: '30px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                background: 'rgba(59, 130, 246, 0.15)',
+                borderColor: 'rgba(59, 130, 246, 0.3)',
+                color: '#60a5fa',
+                fontWeight: '600',
+                borderRadius: '6px',
+                textTransform: 'none',
+                letterSpacing: 'normal',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              📥 Unduh Data Bulan Ini
+            </button>
           </div>
           <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <div className="glass-card stat-card">
@@ -967,49 +1650,405 @@ export default function DashboardPage() {
         /*                          COORDINATOR DASHBOARD                            */
         /* ========================================================================= */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          {/* Charts Container (Stacked Vertically) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* Chart 1: Tren Aktivitas & Prospek */}
+            <section className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="text-gradient">Tren Aktivitas & Prospek</h2>
+                  
+                  {/* Metric Toggles */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowCallLine(!showCallLine)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showCallLine ? '#ffd700' : 'rgba(255, 255, 255, 0.1)',
+                        background: showCallLine ? 'rgba(255, 215, 0, 0.15)' : 'transparent',
+                        color: showCallLine ? '#ffd700' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ffd700' }}></span>
+                      Call {showCallLine ? '✓' : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowBlastingLine(!showBlastingLine)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showBlastingLine ? '#ff4d4d' : 'rgba(255, 255, 255, 0.1)',
+                        background: showBlastingLine ? 'rgba(255, 77, 77, 0.15)' : 'transparent',
+                        color: showBlastingLine ? '#ff4d4d' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#ff4d4d' }}></span>
+                      Blasting {showBlastingLine ? '✓' : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowProspekLine(!showProspekLine)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showProspekLine ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)',
+                        background: showProspekLine ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                        color: showProspekLine ? '#38bdf8' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#38bdf8' }}></span>
+                      Prospek {showProspekLine ? '✓' : ''}
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Date Filter Controls */}
+                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                   <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none', display: 'inline-flex', height: '30px' }}>
+                     <button
+                       type="button"
+                       className={`tab-btn ${actQuickFilter === '7days' ? 'active' : ''}`}
+                       onClick={() => setActQuickFilter('7days')}
+                       style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                     >
+                       7H
+                     </button>
+                     <button
+                       type="button"
+                       className={`tab-btn ${actQuickFilter === '15days' ? 'active' : ''}`}
+                       onClick={() => setActQuickFilter('15days')}
+                       style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                     >
+                       15H
+                     </button>
+                     <button
+                       type="button"
+                       className={`tab-btn ${actQuickFilter === '30days' ? 'active' : ''}`}
+                       onClick={() => setActQuickFilter('30days')}
+                       style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                     >
+                       1M
+                     </button>
+                     <button
+                       type="button"
+                       className={`tab-btn ${actQuickFilter === 'custom' ? 'active' : ''}`}
+                       onClick={() => setActQuickFilter('custom')}
+                       style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                     >
+                       Pilih
+                     </button>
+                   </div>
+ 
+                   {actQuickFilter === 'custom' && (
+                     <div style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center' }} className="animate-fade-in">
+                       <input
+                         type="date"
+                         className="input-control"
+                         value={actStartDate}
+                         onChange={(e) => setActStartDate(e.target.value)}
+                         onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                         style={{ padding: '0 0.35rem', fontSize: '0.8rem', width: '105px', height: '30px', cursor: 'pointer' }}
+                       />
+                       <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>s/d</span>
+                       <input
+                         type="date"
+                         className="input-control"
+                         value={actEndDate}
+                         onChange={(e) => setActEndDate(e.target.value)}
+                         onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                         style={{ padding: '0 0.35rem', fontSize: '0.8rem', width: '105px', height: '30px', cursor: 'pointer' }}
+                       />
+                     </div>
+                   )}
+                 </div>
+              </div>
+              <LineChart 
+                data={chartData} 
+                showCall={showCallLine} 
+                showBlasting={showBlastingLine} 
+                showProspek={showProspekLine} 
+              />
+            </section>
+
+            {/* Chart 2: Tren Pipeline Aplikasi */}
+            <section className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="text-gradient">Tren Pipeline Aplikasi</h2>
+                  
+                  {/* Metric Toggles */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowPipeProspek(!showPipeProspek)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showPipeProspek ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)',
+                        background: showPipeProspek ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                        color: showPipeProspek ? '#38bdf8' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#38bdf8' }}></span>
+                      Prospek {showPipeProspek ? '✓' : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowPipeAplikasiIn(!showPipeAplikasiIn)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showPipeAplikasiIn ? '#c084fc' : 'rgba(255, 255, 255, 0.1)',
+                        background: showPipeAplikasiIn ? 'rgba(192, 132, 252, 0.15)' : 'transparent',
+                        color: showPipeAplikasiIn ? '#c084fc' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#c084fc' }}></span>
+                      Aplikasi IN {showPipeAplikasiIn ? '✓' : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowPipeAplikasiValid(!showPipeAplikasiValid)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showPipeAplikasiValid ? '#34d399' : 'rgba(255, 255, 255, 0.1)',
+                        background: showPipeAplikasiValid ? 'rgba(52, 211, 153, 0.15)' : 'transparent',
+                        color: showPipeAplikasiValid ? '#34d399' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#34d399' }}></span>
+                      Aplikasi Valid {showPipeAplikasiValid ? '✓' : ''}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Date Filter Controls */}
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none', display: 'inline-flex', height: '30px' }}>
+                    <button
+                      type="button"
+                      className={`tab-btn ${pipeQuickFilter === '7days' ? 'active' : ''}`}
+                      onClick={() => setPipeQuickFilter('7days')}
+                      style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                    >
+                      7H
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab-btn ${pipeQuickFilter === '15days' ? 'active' : ''}`}
+                      onClick={() => setPipeQuickFilter('15days')}
+                      style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                    >
+                      15H
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab-btn ${pipeQuickFilter === '30days' ? 'active' : ''}`}
+                      onClick={() => setPipeQuickFilter('30days')}
+                      style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                    >
+                      1M
+                    </button>
+                    <button
+                      type="button"
+                      className={`tab-btn ${pipeQuickFilter === 'custom' ? 'active' : ''}`}
+                      onClick={() => setPipeQuickFilter('custom')}
+                      style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                    >
+                      Pilih
+                    </button>
+                  </div>
+
+                  {pipeQuickFilter === 'custom' && (
+                    <div style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center' }} className="animate-fade-in">
+                      <input
+                        type="date"
+                        className="input-control"
+                        value={pipeStartDate}
+                        onChange={(e) => setPipeStartDate(e.target.value)}
+                        onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                        style={{ padding: '0 0.35rem', fontSize: '0.8rem', width: '105px', height: '30px', cursor: 'pointer' }}
+                      />
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>s/d</span>
+                      <input
+                        type="date"
+                        className="input-control"
+                        value={pipeEndDate}
+                        onChange={(e) => setPipeEndDate(e.target.value)}
+                        onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                        style={{ padding: '0 0.35rem', fontSize: '0.8rem', width: '105px', height: '30px', cursor: 'pointer' }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+              <PipelineChart 
+                data={pipelineChartData} 
+                showProspek={showPipeProspek} 
+                showAplikasiIn={showPipeAplikasiIn} 
+                showAplikasiValid={showPipeAplikasiValid} 
+              />
+            </section>
+          </div>
+
           {/* Officer Performance Table */}
           <section className="glass-card">
-            <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }} className="text-gradient">Performa Officer</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Performa Officer</h2>
+                {/* Officer Filter Dropdown */}
+                <select
+                  className="input-control"
+                  value={filterOfficerPerf}
+                  onChange={(e) => setFilterOfficerPerf(e.target.value)}
+                  style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                >
+                  <option value="">Semua Officer</option>
+                  {officers.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Date Filter Controls */}
+                <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none', display: 'inline-flex', height: '30px' }}>
+                  <button
+                    type="button"
+                    className={`tab-btn ${perfQuickFilter === 'today' ? 'active' : ''}`}
+                    onClick={() => setPerfQuickFilter('today')}
+                    style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                  >
+                    Hari Ini
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${perfQuickFilter === 'month' ? 'active' : ''}`}
+                    onClick={() => setPerfQuickFilter('month')}
+                    style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                  >
+                    Bulan Ini
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${perfQuickFilter === 'custom' ? 'active' : ''}`}
+                    onClick={() => setPerfQuickFilter('custom')}
+                    style={{ padding: '0 0.75rem', fontSize: '0.85rem', height: '100%' }}
+                  >
+                    Pilih Tanggal
+                  </button>
+                </div>
+
+                {perfQuickFilter === 'custom' && (
+                  <div style={{ display: 'inline-flex', gap: '0.25rem', alignItems: 'center' }} className="animate-fade-in">
+                    <input
+                      type="date"
+                      className="input-control"
+                      value={perfStartDate}
+                      onChange={(e) => setPerfStartDate(e.target.value)}
+                      onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                      style={{ padding: '0 0.35rem', fontSize: '0.8rem', width: '105px', height: '30px', cursor: 'pointer' }}
+                    />
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>s/d</span>
+                    <input
+                      type="date"
+                      className="input-control"
+                      value={perfEndDate}
+                      onChange={(e) => setPerfEndDate(e.target.value)}
+                      onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                      style={{ padding: '0 0.35rem', fontSize: '0.8rem', width: '105px', height: '30px', cursor: 'pointer' }}
+                    />
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleDownloadExcelPerformance} 
+                  className="btn btn-secondary" 
+                  style={{ width: 'auto', padding: '0 0.75rem', fontSize: '0.8rem', height: '30px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399' }}
+                >
+                  📥 Unduh Excel
+                </button>
+              </div>
+            </div>
+
             <div className="responsive-table-container">
-              <table className="data-table">
+              <table className="data-table" style={{ minWidth: '100%', tableLayout: 'auto' }}>
                 <thead>
                   <tr>
-                    <th style={{ width: '16%' }}>Nama Officer</th>
-                    <th style={{ width: '10%' }}>Call <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Hari)</span></th>
-                    <th style={{ width: '10%' }}>Blasting <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Hari)</span></th>
-                    <th style={{ width: '10%' }}>Prospek <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Hari)</span></th>
-                    <th style={{ width: '12%' }}>Prospek <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Bulan)</span></th>
-                    <th style={{ width: '12%' }}>Aplikasi IN <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Bulan)</span></th>
-                    <th style={{ width: '14%' }}>Aplikasi Valid <span style={{ fontSize: '0.7rem', opacity: 0.8 }}>(Bulan)</span></th>
-                    <th style={{ width: '10%' }}>Total Pipeline</th>
-                    <th style={{ width: '6%', textAlign: 'right' }}>Aksi</th>
+                    <th>Nama Officer</th>
+                    <th style={{ textAlign: 'center', width: '12%' }}>Call</th>
+                    <th style={{ textAlign: 'center', width: '12%' }}>Blasting</th>
+                    <th style={{ textAlign: 'center', width: '12%' }}>Prospek</th>
+                    <th style={{ textAlign: 'center', width: '15%' }}>Aplikasi IN</th>
+                    <th style={{ textAlign: 'center', width: '15%' }}>Aplikasi Valid</th>
                   </tr>
                 </thead>
                 <tbody>
                   {performance.map((perf) => (
                     <tr key={perf.id}>
                       <td><strong>{perf.name}</strong></td>
-                      <td><span className="badge badge-warning" style={{ minWidth: '24px', justifyContent: 'center' }}>{perf.call}</span></td>
-                      <td><span className="badge badge-danger" style={{ minWidth: '24px', justifyContent: 'center' }}>{perf.blasting}</span></td>
-                      <td><span className="badge badge-info" style={{ minWidth: '24px', justifyContent: 'center' }}>{perf.prospek}</span></td>
-                      <td><span className="badge badge-info" style={{ minWidth: '24px', justifyContent: 'center' }}>{perf.prospekMonth}</span></td>
-                      <td><span className="badge badge-warning" style={{ minWidth: '24px', justifyContent: 'center' }}>{perf.aplikasiIn}</span></td>
-                      <td><span className="badge badge-success" style={{ minWidth: '24px', justifyContent: 'center' }}>{perf.aplikasiValid}</span></td>
-                      <td><strong>{perf.total}</strong></td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', width: 'auto', background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#f87171' }}
-                          onClick={() => handleDeleteOfficer(perf.id, perf.name)}
-                        >
-                          Hapus
-                        </button>
-                      </td>
+                      <td style={{ textAlign: 'center' }}>{perf.call}</td>
+                      <td style={{ textAlign: 'center' }}>{perf.blasting}</td>
+                      <td style={{ textAlign: 'center' }}>{perf.prospek}</td>
+                      <td style={{ textAlign: 'center' }}>{perf.aplikasiIn}</td>
+                      <td style={{ textAlign: 'center' }}>{perf.aplikasiValid}</td>
                     </tr>
                   ))}
                   {performance.length === 0 && (
                     <tr>
-                      <td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
                         Belum ada Officer yang terdaftar.
                       </td>
                     </tr>
@@ -1019,68 +2058,107 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem' }}>
-            {/* Add Officer Card */}
-            <section className="glass-card">
-              <h2 style={{ marginBottom: '1.25rem', fontSize: '1.25rem' }} className="text-gradient">Tambah Officer Baru</h2>
-              <form onSubmit={handleAddOfficer} style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-                <div className="form-group" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
-                  <label htmlFor="officer-name">Nama Officer</label>
-                  <input
-                    id="officer-name"
-                    type="text"
-                    className="input-control"
-                    placeholder="Nama lengkap"
-                    value={newOfficerName}
-                    onChange={(e) => setNewOfficerName(e.target.value)}
-                  />
-                </div>
-                <div className="form-group" style={{ width: '120px', marginBottom: 0 }}>
-                  <label htmlFor="officer-pin">4-Digit PIN</label>
-                  <input
-                    id="officer-pin"
-                    type="password"
-                    maxLength={4}
-                    className="input-control"
-                    placeholder="••••"
-                    value={newOfficerPin}
-                    onChange={(e) => setNewOfficerPin(e.target.value.replace(/\D/g, ''))}
-                  />
-                </div>
-                <button type="submit" className="btn btn-primary" style={{ width: 'auto', height: '42px' }}>
-                  Tambah
-                </button>
-              </form>
-              {coordError && <div style={{ color: '#f87171', fontSize: '0.875rem', marginTop: '0.75rem' }}>{coordError}</div>}
-              {coordSuccess && <div style={{ color: '#34d399', fontSize: '0.875rem', marginTop: '0.75rem' }}>{coordSuccess}</div>}
-            </section>
-          </div>
+
 
           {/* Pipeline Monitor for Coordinator */}
           <section className="glass-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-              <h2 style={{ fontSize: '1.25rem' }} className="text-gradient">Monitor Pipeline Global</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Monitoring Aplikasi</h2>
+                
+                {/* Officer Filter Dropdown */}
+                <select
+                  className="input-control"
+                  value={filterOfficer}
+                  onChange={(e) => setFilterOfficer(e.target.value)}
+                  style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                >
+                  <option value="">Semua Officer</option>
+                  {officers.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+
+                {/* Tahapan Filter Dropdown (Prospek / Aplikasi IN / Aplikasi Valid) */}
+                <select
+                  className="input-control"
+                  value={activeTab}
+                  onChange={(e) => {
+                    setActiveTab(e.target.value);
+                    setSearchQuery('');
+                    setFilterStatus('');
+                  }}
+                  style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                >
+                  <option value="Prospek">Prospek</option>
+                  <option value="Aplikasi IN">Aplikasi IN</option>
+                  <option value="Aplikasi Valid">Aplikasi Valid</option>
+                </select>
+              </div>
               
-              {/* Pipeline Tab Switcher (Only Prospek, Aplikasi IN, Aplikasi Valid) */}
-              <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none' }}>
-                {['Prospek', 'Aplikasi IN', 'Aplikasi Valid'].map((tab) => (
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* Date Filter Controls for Monitoring Aplikasi */}
+                <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none', display: 'inline-flex', height: '30px' }}>
                   <button
-                    key={tab}
-                    className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
-                    onClick={() => {
-                      setActiveTab(tab);
-                      setSearchQuery('');
-                      setFilterStatus('');
-                    }}
+                    type="button"
+                    className={`tab-btn ${appQuickFilter === 'today' ? 'active' : ''}`}
+                    onClick={() => setAppQuickFilter('today')}
+                    style={{ padding: '0 0.75rem', fontSize: '0.8rem', height: '100%' }}
                   >
-                    {tab}
+                    Hari Ini
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    className={`tab-btn ${appQuickFilter === 'month' ? 'active' : ''}`}
+                    onClick={() => setAppQuickFilter('month')}
+                    style={{ padding: '0 0.75rem', fontSize: '0.8rem', height: '100%' }}
+                  >
+                    Bulan Ini
+                  </button>
+                  <button
+                    type="button"
+                    className={`tab-btn ${appQuickFilter === 'custom' ? 'active' : ''}`}
+                    onClick={() => setAppQuickFilter('custom')}
+                    style={{ padding: '0 0.75rem', fontSize: '0.8rem', height: '100%' }}
+                  >
+                    Pilih Tanggal
+                  </button>
+                </div>
+
+                {appQuickFilter === 'custom' && (
+                  <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }} className="animate-fade-in">
+                    <input
+                      type="date"
+                      className="input-control"
+                      value={appStartDate}
+                      onChange={(e) => setAppStartDate(e.target.value)}
+                      onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                      style={{ padding: '0 0.35rem', fontSize: '0.75rem', width: '110px', height: '30px', cursor: 'pointer' }}
+                    />
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>s/d</span>
+                    <input
+                      type="date"
+                      className="input-control"
+                      value={appEndDate}
+                      onChange={(e) => setAppEndDate(e.target.value)}
+                      onClick={(e) => { try { e.target.showPicker(); } catch(err) {} }}
+                      style={{ padding: '0 0.35rem', fontSize: '0.75rem', width: '110px', height: '30px', cursor: 'pointer' }}
+                    />
+                  </div>
+                )}
+
+                <button 
+                  onClick={handleDownloadExcelAplikasi} 
+                  className="btn btn-secondary" 
+                  style={{ width: 'auto', padding: '0 0.75rem', fontSize: '0.8rem', height: '30px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399' }}
+                >
+                  📥 Unduh Excel
+                </button>
               </div>
             </div>
 
             {/* Filter controls */}
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <div style={{ flex: 1, minWidth: '200px' }}>
                 <input
                   type="text"
@@ -1088,49 +2166,36 @@ export default function DashboardPage() {
                   placeholder="Cari nama customer..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ height: '30px', padding: '0 0.75rem', fontSize: '0.8rem' }}
                 />
               </div>
-              <div style={{ width: '180px' }}>
-                <select
-                  className="input-control"
-                  value={filterOfficer}
-                  onChange={(e) => setFilterOfficer(e.target.value)}
-                >
-                  <option value="">Semua Officer</option>
-                  {officers.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ width: '150px' }}>
-                <select
-                  className="input-control"
-                  value={filterSegment}
-                  onChange={(e) => setFilterSegment(e.target.value)}
-                >
-                  <option value="">Semua Segmen</option>
-                  <option value="Bronze">Bronze</option>
-                  <option value="Flexi">Flexi</option>
-                  <option value="Gold">Gold</option>
-                  <option value="Platinum">Platinum</option>
-                  <option value="Solitaire">Solitaire</option>
-                </select>
-              </div>
+              <select
+                className="input-control"
+                value={filterSegment}
+                onChange={(e) => setFilterSegment(e.target.value)}
+                style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+              >
+                <option value="">Semua Segmen</option>
+                <option value="Bronze">Bronze</option>
+                <option value="Flexi">Flexi</option>
+                <option value="Gold">Gold</option>
+                <option value="Platinum">Platinum</option>
+                <option value="Solitaire">Solitaire</option>
+              </select>
               {activeTab === 'Aplikasi IN' && (
-                <div style={{ width: '180px' }}>
-                  <select
-                    className="input-control"
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                  >
-                    <option value="">Semua Status</option>
-                    <option value="Belum Melengkapi Data">Belum Melengkapi Data</option>
-                    <option value="On Progress">On Progress</option>
-                    <option value="RE">RE</option>
-                    <option value="NB">NB</option>
-                    <option value="DP OP">DP OP</option>
-                  </select>
-                </div>
+                <select
+                  className="input-control"
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                >
+                  <option value="">Semua Status</option>
+                  <option value="Belum Melengkapi Data">Belum Melengkapi Data</option>
+                  <option value="On Progress">On Progress</option>
+                  <option value="RE">RE</option>
+                  <option value="NB">NB</option>
+                  <option value="DP OP">DP OP</option>
+                </select>
               )}
             </div>
 
@@ -1510,107 +2575,171 @@ export default function DashboardPage() {
         <div className="modal-overlay">
           <div className="glass-card modal-content">
             <h2 style={{ marginBottom: '1.5rem' }} className="text-gradient">
-              {isEditMode ? 'Edit Data Prospek' : 'Input Data Baru (Tahap Prospek)'}
+              {isEditMode ? 'Edit Data Prospek' : 'Input Data Baru'}
             </h2>
-            <form onSubmit={handleAddProspect}>
-              <div className="form-group">
-                <label>Jenis Pengajuan</label>
-                <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.25rem' }}>
-                  <label className="checkbox-group">
-                    <input
-                      type="radio"
-                      name="pengajuan"
-                      value="Non Top Up"
-                      checked={inputForm.pengajuan === 'Non Top Up'}
-                      onChange={(e) => setInputForm({ ...inputForm, pengajuan: e.target.value })}
-                    />
-                    Non Top Up
-                  </label>
-                  <label className="checkbox-group">
-                    <input
-                      type="radio"
-                      name="pengajuan"
-                      value="Top Up"
-                      checked={inputForm.pengajuan === 'Top Up'}
-                      onChange={(e) => setInputForm({ ...inputForm, pengajuan: e.target.value })}
-                    />
-                    Top Up
-                  </label>
-                </div>
-              </div>
 
-              <div className="form-group">
-                <label htmlFor="cust-name">Nama Customer</label>
-                <input
-                  id="cust-name"
-                  type="text"
-                  className="input-control"
-                  required
-                  placeholder="Masukkan nama"
-                  value={inputForm.nama}
-                  onChange={(e) => setInputForm({ ...inputForm, nama: e.target.value })}
-                />
+            {/* Tab Switcher in Modal (only in Add Mode) */}
+            {!isEditMode && (
+              <div className="tabs-container" style={{ marginBottom: '1.5rem', justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeInputTab === 'Prospek' ? 'active' : ''}`}
+                  onClick={() => setActiveInputTab('Prospek')}
+                  style={{ flex: 1, padding: '0.6rem' }}
+                >
+                  Prospek
+                </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeInputTab === 'Contacting' ? 'active' : ''}`}
+                  onClick={() => setActiveInputTab('Contacting')}
+                  style={{ flex: 1, padding: '0.6rem' }}
+                >
+                  Contacting
+                </button>
               </div>
+            )}
 
-              <div className="form-group">
-                <label htmlFor="cust-address">Alamat</label>
-                <textarea
-                  id="cust-address"
-                  className="input-control"
-                  rows={2}
-                  placeholder="Alamat lengkap"
-                  value={inputForm.alamat}
-                  onChange={(e) => setInputForm({ ...inputForm, alamat: e.target.value })}
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            {activeInputTab === 'Contacting' && !isEditMode ? (
+              <form onSubmit={handleAddContacting}>
                 <div className="form-group">
-                  <label htmlFor="cust-status">Status</label>
-                  <select
-                    id="cust-status"
-                    className="input-control"
-                    value={inputForm.status}
-                    onChange={(e) => setInputForm({ ...inputForm, status: e.target.value })}
-                  >
-                    <option value="Open">Open</option>
-                    <option value="Close">Close</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="cust-progress">Progress</label>
+                  <label htmlFor="contacting-call">Jumlah Call</label>
                   <input
-                    id="cust-progress"
-                    type="text"
+                    id="contacting-call"
+                    type="number"
+                    min="0"
                     className="input-control"
-                    placeholder="Contoh: Kunjungan Pertama"
-                    value={inputForm.progress}
-                    onChange={(e) => setInputForm({ ...inputForm, progress: e.target.value })}
+                    required
+                    placeholder="Masukkan angka (contoh: 15)"
+                    value={contactingForm.call}
+                    onChange={(e) => setContactingForm({ ...contactingForm, call: e.target.value })}
                   />
                 </div>
-              </div>
 
-              <div className="form-group" style={{ marginTop: '0.5rem' }}>
-                <label htmlFor="cust-note">Catatan</label>
-                <textarea
-                  id="cust-note"
-                  className="input-control"
-                  rows={2}
-                  placeholder="Catatan tambahan..."
-                  value={inputForm.note}
-                  onChange={(e) => setInputForm({ ...inputForm, note: e.target.value })}
-                />
-              </div>
+                <div className="form-group">
+                  <label htmlFor="contacting-blasting">Jumlah Blasting</label>
+                  <input
+                    id="contacting-blasting"
+                    type="number"
+                    min="0"
+                    className="input-control"
+                    required
+                    placeholder="Masukkan angka (contoh: 30)"
+                    value={contactingForm.blasting}
+                    onChange={(e) => setContactingForm({ ...contactingForm, blasting: e.target.value })}
+                  />
+                </div>
 
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
-                <button type="button" className="btn btn-secondary" onClick={() => setIsInputModalOpen(false)}>
-                  Batal
-                </button>
-                <button type="submit" className="btn btn-primary">
-                  {isEditMode ? 'Simpan Perubahan' : 'Simpan Data'}
-                </button>
-              </div>
-            </form>
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setIsInputModalOpen(false)}>
+                    Batal
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Simpan Contacting
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleAddProspect}>
+                <div className="form-group">
+                  <label>Jenis Pengajuan</label>
+                  <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.25rem' }}>
+                    <label className="checkbox-group">
+                      <input
+                        type="radio"
+                        name="pengajuan"
+                        value="Non Top Up"
+                        checked={inputForm.pengajuan === 'Non Top Up'}
+                        onChange={(e) => setInputForm({ ...inputForm, pengajuan: e.target.value })}
+                      />
+                      Non Top Up
+                    </label>
+                    <label className="checkbox-group">
+                      <input
+                        type="radio"
+                        name="pengajuan"
+                        value="Top Up"
+                        checked={inputForm.pengajuan === 'Top Up'}
+                        onChange={(e) => setInputForm({ ...inputForm, pengajuan: e.target.value })}
+                      />
+                      Top Up
+                    </label>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="cust-name">Nama Customer</label>
+                  <input
+                    id="cust-name"
+                    type="text"
+                    className="input-control"
+                    required
+                    placeholder="Masukkan nama"
+                    value={inputForm.nama}
+                    onChange={(e) => setInputForm({ ...inputForm, nama: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="cust-address">Alamat</label>
+                  <textarea
+                    id="cust-address"
+                    className="input-control"
+                    rows={2}
+                    placeholder="Alamat lengkap"
+                    value={inputForm.alamat}
+                    onChange={(e) => setInputForm({ ...inputForm, alamat: e.target.value })}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label htmlFor="cust-status">Status</label>
+                    <select
+                      id="cust-status"
+                      className="input-control"
+                      value={inputForm.status}
+                      onChange={(e) => setInputForm({ ...inputForm, status: e.target.value })}
+                    >
+                      <option value="Open">Open</option>
+                      <option value="Close">Close</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="cust-progress">Progress</label>
+                    <input
+                      id="cust-progress"
+                      type="text"
+                      className="input-control"
+                      placeholder="Contoh: Kunjungan Pertama"
+                      value={inputForm.progress}
+                      onChange={(e) => setInputForm({ ...inputForm, progress: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '0.5rem' }}>
+                  <label htmlFor="cust-note">Catatan</label>
+                  <textarea
+                    id="cust-note"
+                    className="input-control"
+                    rows={2}
+                    placeholder="Catatan tambahan..."
+                    value={inputForm.note}
+                    onChange={(e) => setInputForm({ ...inputForm, note: e.target.value })}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+                  <button type="button" className="btn btn-secondary" onClick={() => setIsInputModalOpen(false)}>
+                    Batal
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    {isEditMode ? 'Simpan Perubahan' : 'Simpan Data'}
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -1760,3 +2889,381 @@ export default function DashboardPage() {
     </main>
   );
 }
+
+// Custom SVG Line Chart Component for Premium Visuals and SSR Safety
+const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = true }) => {
+  if (!data || data.length === 0) return null;
+
+  const maxVal = Math.max(
+    ...data.map(d => {
+      const vals = [];
+      if (showCall) vals.push(d.call);
+      if (showBlasting) vals.push(d.blasting);
+      if (showProspek) vals.push(d.prospek);
+      return vals.length > 0 ? Math.max(...vals) : 0;
+    }),
+    10
+  );
+
+  const width = 800;
+  const height = 220;
+  const paddingLeft = 40;
+  const paddingRight = 20;
+  const paddingTop = 25;
+  const paddingBottom = 30;
+
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+
+  const points = data.map((d, i) => {
+    const x = paddingLeft + (i / (data.length - 1 || 1)) * chartWidth;
+    const y = paddingTop + chartHeight - (d.call / maxVal) * chartHeight;
+    const yBlast = paddingTop + chartHeight - (d.blasting / maxVal) * chartHeight;
+    const yProspek = paddingTop + chartHeight - (d.prospek / maxVal) * chartHeight;
+    return { x, y, yBlast, yProspek, label: d.label, call: d.call, blasting: d.blasting, prospek: d.prospek };
+  });
+
+  const getPathD = (pts, key) => {
+    if (pts.length === 0) return '';
+    return pts.reduce((path, p, i) => {
+      const yVal = key === 'call' ? p.y : key === 'blasting' ? p.yBlast : p.yProspek;
+      return i === 0 ? `M ${p.x} ${yVal}` : `${path} L ${p.x} ${yVal}`;
+    }, '');
+  };
+
+  const pathCall = getPathD(points, 'call');
+  const pathBlasting = getPathD(points, 'blasting');
+  const pathProspek = getPathD(points, 'prospek');
+
+  const [activePoint, setActivePoint] = useState(null);
+
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+    const y = paddingTop + chartHeight * (1 - ratio);
+    const value = Math.round(maxVal * ratio);
+    return { y, value };
+  });
+
+  return (
+    <div className="chart-container" style={{ position: 'relative', width: '100%' }}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" style={{ overflow: 'visible' }}>
+
+        {/* Grid Lines */}
+        {gridLines.map((line, i) => (
+          <g key={i}>
+            <line 
+              x1={paddingLeft} 
+              y1={line.y} 
+              x2={width - paddingRight} 
+              y2={line.y} 
+              stroke="rgba(255, 255, 255, 0.08)" 
+              strokeDasharray="3 3"
+            />
+            <text 
+              x={paddingLeft - 8} 
+              y={line.y + 4} 
+              fill="rgba(255, 255, 255, 0.5)" 
+              fontSize="10" 
+              textAnchor="end"
+            >
+              {line.value}
+            </text>
+          </g>
+        ))}
+
+        {/* X Axis Labels */}
+        {points.map((p, i) => {
+          const step = Math.ceil(data.length / 10);
+          if (i % step !== 0 && i !== data.length - 1) return null;
+          return (
+            <text
+              key={i}
+              x={p.x}
+              y={height - 8}
+              fill="rgba(255, 255, 255, 0.5)"
+              fontSize="10"
+              textAnchor="middle"
+            >
+              {p.label}
+            </text>
+          );
+        })}
+
+
+        {/* Trend Lines with elegant thin strokes */}
+        {/* Call: Solid Yellow */}
+        {showCall && <path d={pathCall} fill="none" stroke="#ffd700" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+        {/* Blasting: Solid Red */}
+        {showBlasting && <path d={pathBlasting} fill="none" stroke="#ff4d4d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+        {/* Prospek: Solid Sky Blue */}
+        {showProspek && <path d={pathProspek} fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+
+        {/* Permanent Distinct Shape Markers on Every Data Point (Small and Elegant) */}
+        {points.map((p, i) => (
+          <g key={i}>
+            {/* Call: Yellow Circle */}
+            {showCall && <circle cx={p.x} cy={p.y} r="2.5" fill="#ffd700" stroke="#0f172a" strokeWidth="1" />}
+            
+            {/* Blasting: Red Square */}
+            {showBlasting && <rect x={p.x - 2.5} y={p.yBlast - 2.5} width="5" height="5" fill="#ff4d4d" stroke="#0f172a" strokeWidth="1" />}
+            
+            {/* Prospek: Sky Blue Diamond */}
+            {showProspek && (
+              <polygon 
+                points={`${p.x},${p.yProspek - 3.5} ${p.x + 3.5},${p.yProspek} ${p.x},${p.yProspek + 3.5} ${p.x - 3.5},${p.yProspek}`} 
+                fill="#38bdf8" 
+                stroke="#0f172a" 
+                strokeWidth="1" 
+              />
+            )}
+          </g>
+        ))}
+
+        {/* Interactive Hover Vertical Bar */}
+        {activePoint && (
+          <line
+            x1={activePoint.x}
+            y1={paddingTop}
+            x2={activePoint.x}
+            y2={paddingTop + chartHeight}
+            stroke="rgba(255, 255, 255, 0.2)"
+            strokeWidth="1.5"
+            strokeDasharray="2 2"
+          />
+        )}
+
+        {/* Interactive Hover Dots (Larger & Glowing on Hover) */}
+        {points.map((p, i) => (
+          <g key={i}>
+            {/* Hover Target Area */}
+            <rect
+              x={p.x - (chartWidth / (data.length - 1 || 1)) / 2}
+              y={paddingTop}
+              width={chartWidth / (data.length - 1 || 1)}
+              height={chartHeight}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setActivePoint(p)}
+              onMouseLeave={() => setActivePoint(null)}
+            />
+            
+            {activePoint === p && (
+              <>
+                {showCall && <circle cx={p.x} cy={p.y} r="6" fill="#ffd700" stroke="#ffffff" strokeWidth="1.5" />}
+                {showBlasting && <circle cx={p.x} cy={p.yBlast} r="6" fill="#ff4d4d" stroke="#ffffff" strokeWidth="1.5" />}
+                {showProspek && <circle cx={p.x} cy={p.yProspek} r="6" fill="#38bdf8" stroke="#ffffff" strokeWidth="1.5" />}
+              </>
+            )}
+          </g>
+        ))}
+      </svg>
+
+      {/* Tooltip Overlay */}
+      {activePoint && (
+        <div 
+          className="chart-tooltip animate-fade-in" 
+          style={{
+            position: 'absolute',
+            left: `${(activePoint.x / width) * 100}%`,
+            top: '10px',
+            transform: 'translateX(-50%)',
+            pointerEvents: 'none',
+            zIndex: 10
+          }}
+        >
+          <div className="tooltip-title">{activePoint.label}</div>
+          {showCall && <div className="tooltip-item"><span className="dot" style={{ background: '#ffd700' }}></span> Call: <strong>{activePoint.call}</strong></div>}
+          {showBlasting && <div className="tooltip-item"><span className="dot" style={{ background: '#ff4d4d' }}></span> Blasting: <strong>{activePoint.blasting}</strong></div>}
+          {showProspek && <div className="tooltip-item"><span className="dot" style={{ background: '#38bdf8' }}></span> Prospek: <strong>{activePoint.prospek}</strong></div>}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Custom SVG Pipeline Chart Component
+const PipelineChart = ({ data, showProspek = true, showAplikasiIn = true, showAplikasiValid = true }) => {
+  if (!data || data.length === 0) return null;
+
+  const maxVal = Math.max(
+    ...data.map(d => {
+      const vals = [];
+      if (showProspek) vals.push(d.prospek);
+      if (showAplikasiIn) vals.push(d.aplikasiIn);
+      if (showAplikasiValid) vals.push(d.aplikasiValid);
+      return vals.length > 0 ? Math.max(...vals) : 0;
+    }),
+    10
+  );
+
+  const width = 800;
+  const height = 220;
+  const paddingLeft = 40;
+  const paddingRight = 20;
+  const paddingTop = 25;
+  const paddingBottom = 30;
+
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+
+  const points = data.map((d, i) => {
+    const x = paddingLeft + (i / (data.length - 1 || 1)) * chartWidth;
+    const yProspek = paddingTop + chartHeight - (d.prospek / maxVal) * chartHeight;
+    const yAppIn = paddingTop + chartHeight - (d.aplikasiIn / maxVal) * chartHeight;
+    const yAppValid = paddingTop + chartHeight - (d.aplikasiValid / maxVal) * chartHeight;
+    return { x, yProspek, yAppIn, yAppValid, label: d.label, prospek: d.prospek, aplikasiIn: d.aplikasiIn, aplikasiValid: d.aplikasiValid };
+  });
+
+  const getPathD = (pts, key) => {
+    if (pts.length === 0) return '';
+    return pts.reduce((path, p, i) => {
+      const yVal = key === 'prospek' ? p.yProspek : key === 'aplikasiIn' ? p.yAppIn : p.yAppValid;
+      return i === 0 ? `M ${p.x} ${yVal}` : `${path} L ${p.x} ${yVal}`;
+    }, '');
+  };
+
+  const pathProspek = getPathD(points, 'prospek');
+  const pathAplikasiIn = getPathD(points, 'aplikasiIn');
+  const pathAplikasiValid = getPathD(points, 'aplikasiValid');
+
+  const [activePoint, setActivePoint] = useState(null);
+
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+    const y = paddingTop + chartHeight * (1 - ratio);
+    const value = Math.round(maxVal * ratio);
+    return { y, value };
+  });
+
+  return (
+    <div className="chart-container" style={{ position: 'relative', width: '100%' }}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" height="100%" style={{ overflow: 'visible' }}>
+        {/* Grid Lines */}
+        {gridLines.map((line, i) => (
+          <g key={i}>
+            <line 
+              x1={paddingLeft} 
+              y1={line.y} 
+              x2={width - paddingRight} 
+              y2={line.y} 
+              stroke="rgba(255, 255, 255, 0.08)" 
+              strokeDasharray="3 3"
+            />
+            <text 
+              x={paddingLeft - 8} 
+              y={line.y + 4} 
+              fill="rgba(255, 255, 255, 0.5)" 
+              fontSize="10" 
+              textAnchor="end"
+            >
+              {line.value}
+            </text>
+          </g>
+        ))}
+
+        {/* X Axis Labels */}
+        {points.map((p, i) => {
+          const step = Math.ceil(data.length / 10);
+          if (i % step !== 0 && i !== data.length - 1) return null;
+          return (
+            <text
+              key={i}
+              x={p.x}
+              y={height - 8}
+              fill="rgba(255, 255, 255, 0.5)"
+              fontSize="10"
+              textAnchor="middle"
+            >
+              {p.label}
+            </text>
+          );
+        })}
+
+        {/* Trend Lines */}
+        {/* Prospek: Solid Sky Blue */}
+        {showProspek && <path d={pathProspek} fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+        {/* Aplikasi IN: Solid Purple */}
+        {showAplikasiIn && <path d={pathAplikasiIn} fill="none" stroke="#c084fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+        {/* Aplikasi Valid: Solid Emerald Green */}
+        {showAplikasiValid && <path d={pathAplikasiValid} fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+
+        {/* Permanent Distinct Shape Markers */}
+        {points.map((p, i) => (
+          <g key={i}>
+            {/* Prospek: Sky Blue Circle */}
+            {showProspek && <circle cx={p.x} cy={p.yProspek} r="2.5" fill="#38bdf8" stroke="#0f172a" strokeWidth="1" />}
+            
+            {/* Aplikasi IN: Purple Square */}
+            {showAplikasiIn && <rect x={p.x - 2.5} y={p.yAppIn - 2.5} width="5" height="5" fill="#c084fc" stroke="#0f172a" strokeWidth="1" />}
+            
+            {/* Aplikasi Valid: Emerald Diamond */}
+            {showAplikasiValid && (
+              <polygon 
+                points={`${p.x},${p.yAppValid - 3.5} ${p.x + 3.5},${p.yAppValid} ${p.x},${p.yAppValid + 3.5} ${p.x - 3.5},${p.yAppValid}`} 
+                fill="#34d399" 
+                stroke="#0f172a" 
+                strokeWidth="1" 
+              />
+            )}
+          </g>
+        ))}
+
+        {/* Interactive Hover Vertical Bar */}
+        {activePoint && (
+          <line
+            x1={activePoint.x}
+            y1={paddingTop}
+            x2={activePoint.x}
+            y2={paddingTop + chartHeight}
+            stroke="rgba(255, 255, 255, 0.2)"
+            strokeWidth="1.5"
+            strokeDasharray="2 2"
+          />
+        )}
+
+        {/* Interactive Hover Dots */}
+        {points.map((p, i) => (
+          <g key={i}>
+            <rect
+              x={p.x - (chartWidth / (data.length - 1 || 1)) / 2}
+              y={paddingTop}
+              width={chartWidth / (data.length - 1 || 1)}
+              height={chartHeight}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setActivePoint(p)}
+              onMouseLeave={() => setActivePoint(null)}
+            />
+            
+            {activePoint === p && (
+              <>
+                {showProspek && <circle cx={p.x} cy={p.yProspek} r="6" fill="#38bdf8" stroke="#ffffff" strokeWidth="1.5" />}
+                {showAplikasiIn && <circle cx={p.x} cy={p.yAppIn} r="6" fill="#c084fc" stroke="#ffffff" strokeWidth="1.5" />}
+                {showAplikasiValid && <circle cx={p.x} cy={p.yAppValid} r="6" fill="#34d399" stroke="#ffffff" strokeWidth="1.5" />}
+              </>
+            )}
+          </g>
+        ))}
+      </svg>
+
+      {/* Tooltip Overlay */}
+      {activePoint && (
+        <div 
+          className="chart-tooltip animate-fade-in" 
+          style={{
+            position: 'absolute',
+            left: `${(activePoint.x / width) * 100}%`,
+            top: '10px',
+            transform: 'translateX(-50%)',
+            pointerEvents: 'none',
+            zIndex: 10
+          }}
+        >
+          <div className="tooltip-title">{activePoint.label}</div>
+          {showProspek && <div className="tooltip-item"><span className="dot" style={{ background: '#38bdf8' }}></span> Prospek: <strong>{activePoint.prospek}</strong></div>}
+          {showAplikasiIn && <div className="tooltip-item"><span className="dot" style={{ background: '#c084fc' }}></span> Aplikasi IN: <strong>{activePoint.aplikasiIn}</strong></div>}
+          {showAplikasiValid && <div className="tooltip-item"><span className="dot" style={{ background: '#34d399' }}></span> Aplikasi Valid: <strong>{activePoint.aplikasiValid}</strong></div>}
+        </div>
+      )}
+    </div>
+  );
+};
+

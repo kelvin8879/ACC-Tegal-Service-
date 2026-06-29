@@ -50,7 +50,7 @@ SECURITY DEFINER
 AS $$
 DECLARE
     db_size_bytes BIGINT;
-    limit_bytes BIGINT := 524288000; -- 500 MB in bytes
+    limit_bytes BIGINT := 1500000000; -- 500 MB in bytes
     size_mb_val NUMERIC;
 BEGIN
     -- Get size of the current database
@@ -72,3 +72,22 @@ INSERT INTO officers (name, pin) VALUES
 ('Siti Aminah', '5678'),
 ('Andi Wijaya', '1111')
 ON CONFLICT (name) DO NOTHING;
+
+-- Create Contacting Table
+CREATE TABLE IF NOT EXISTS contacting (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    officer_id UUID REFERENCES officers(id) ON DELETE CASCADE,
+    call_count INTEGER DEFAULT 0 NOT NULL,
+    blasting_count INTEGER DEFAULT 0 NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE contacting ENABLE ROW LEVEL SECURITY;
+
+-- Public read/write policies for MVP simplicity
+CREATE POLICY "Allow public read access on contacting" ON contacting FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access on contacting" ON contacting FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update access on contacting" ON contacting FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete access on contacting" ON contacting FOR DELETE USING (true);
+

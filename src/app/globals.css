@@ -583,3 +583,55 @@ tr:hover .row-hover-btn {
   }
 }
 
+/* Line Chart Styling */
+.chart-container {
+  margin-top: 0.5rem;
+  background: rgba(15, 23, 42, 0.35);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.chart-line {
+  transition: all 0.3s ease;
+}
+
+.chart-tooltip {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.8rem;
+  color: #ffffff;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  min-width: 120px;
+}
+
+.tooltip-title {
+  font-weight: bold;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
+  color: #cbd5e1;
+}
+
+.tooltip-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.15rem 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-call { background: #fbbf24; }
+.dot-blasting { background: #ef4444; }
+.dot-prospek { background: #3b82f6; }
+
+
