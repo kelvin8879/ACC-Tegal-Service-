@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import * as XLSX from 'xlsx';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -1443,7 +1444,7 @@ Alamat : ${prospect.alamat || '-'}
     setSelectedProspect(null);
   };
 
-  // Download Performa Officer as Excel (CSV)
+  // Download Performa Officer as Excel (XLSX)
   const handleDownloadExcelPerformance = () => {
     const headers = ['Nama Officer', 'Call', 'Blasting', 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'];
     const rows = performance.map(perf => [
@@ -1455,28 +1456,18 @@ Alamat : ${prospect.alamat || '-'}
       perf.aplikasiValid
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Performa Officer');
 
     let periodStr = perfQuickFilter;
     if (perfQuickFilter === 'custom') {
       periodStr = `${perfStartDate}_to_${perfEndDate}`;
     }
-    link.setAttribute('download', `performa_officer_${periodStr}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    XLSX.writeFile(workbook, `performa_officer_${periodStr}.xlsx`);
   };
 
-  // Download Monitoring Aplikasi as Excel (CSV)
+  // Download Monitoring Aplikasi as Excel (XLSX)
   const handleDownloadExcelAplikasi = () => {
     let headers = [];
     let rows = [];
@@ -1526,20 +1517,11 @@ Alamat : ${prospect.alamat || '-'}
       });
     }
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, activeTab);
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `monitoring_aplikasi_${activeTab.toLowerCase().replace(' ', '_')}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    XLSX.writeFile(workbook, `monitoring_aplikasi_${activeTab.toLowerCase().replace(' ', '_')}.xlsx`);
   };
 
   // Download All Stages for the Entire Month sorted day-by-day
@@ -1590,7 +1572,7 @@ Alamat : ${prospect.alamat || '-'}
     rows.sort((a, b) => a.date.localeCompare(b.date));
 
     const headers = ['Tanggal Aktivitas', 'Nama Customer', 'Tahapan', 'Segmen', 'No Reg', 'Date IN', 'Date Valid', 'Officer', 'Keterangan/Catatan'];
-    const csvRows = rows.map(r => [
+    const excelRows = rows.map(r => [
       formatDate(r.date),
       r.nama,
       r.tahapan,
@@ -1602,24 +1584,14 @@ Alamat : ${prospect.alamat || '-'}
       r.keterangan
     ]);
 
-    const csvContent = [
-      headers.join(','),
-      ...csvRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Data Harian');
 
     const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
     const currentMonthName = monthNames[new Date().getMonth()];
 
-    link.setAttribute('href', url);
-    link.setAttribute('download', `data_harian_aplikasi_${currentMonthName.toLowerCase()}_${new Date().getFullYear()}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    XLSX.writeFile(workbook, `data_harian_aplikasi_${currentMonthName.toLowerCase()}_${new Date().getFullYear()}.xlsx`);
   };
 
   // Critical: Delete All Data in Supabase (Prospects and Contacting only) and LocalStorage
@@ -1659,44 +1631,30 @@ Alamat : ${prospect.alamat || '-'}
     }
   };
 
-  // Download Chart 1 (Tren Aktivitas & Prospek) data as CSV
-  const handleDownloadChart1CSV = () => {
+  // Download Chart 1 (Tren Aktivitas & Prospek) data as Excel
+  const handleDownloadChart1Excel = () => {
     const data = getChartData();
     const headers = ['Tanggal', 'Call', 'Blasting', 'Prospek'];
-    const csvRows = data.map(d => [formatDate(d.dateStr), d.call, d.blasting, d.prospek]);
-    const csvContent = [
-      headers.join(','),
-      ...csvRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
+    const excelRows = data.map(d => [formatDate(d.dateStr), d.call, d.blasting, d.prospek]);
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'tren_aktivitas_dan_prospek.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tren Aktivitas & Prospek');
+
+    XLSX.writeFile(workbook, 'tren_aktivitas_dan_prospek.xlsx');
   };
 
-  // Download Chart 2 (Tren Pipeline Aplikasi) data as CSV
-  const handleDownloadChart2CSV = () => {
+  // Download Chart 2 (Tren Pipeline Aplikasi) data as Excel
+  const handleDownloadChart2Excel = () => {
     const data = getPipelineChartData();
     const headers = ['Tanggal', 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'];
-    const csvRows = data.map(d => [formatDate(d.dateStr), d.prospek, d.aplikasiIn, d.aplikasiValid]);
-    const csvContent = [
-      headers.join(','),
-      ...csvRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-    ].join('\n');
+    const excelRows = data.map(d => [formatDate(d.dateStr), d.prospek, d.aplikasiIn, d.aplikasiValid]);
 
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'tren_pipeline_aplikasi.csv';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Tren Pipeline Aplikasi');
+
+    XLSX.writeFile(workbook, 'tren_pipeline_aplikasi.xlsx');
   };
 
   if (loading || !user) {
@@ -2096,11 +2054,11 @@ Alamat : ${prospect.alamat || '-'}
                   )}
 
                   <button
-                    onClick={handleDownloadChart1CSV}
+                    onClick={handleDownloadChart1Excel}
                     className="btn btn-secondary"
                     style={{ width: 'auto', padding: '0 0.75rem', fontSize: '0.8rem', height: '30px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399', borderRadius: '6px' }}
                   >
-                    📊 Unduh CSV
+                    📊 Unduh Excel
                   </button>
                 </div>
               </div>
@@ -2280,11 +2238,11 @@ Alamat : ${prospect.alamat || '-'}
                   )}
 
                   <button
-                    onClick={handleDownloadChart2CSV}
+                    onClick={handleDownloadChart2Excel}
                     className="btn btn-secondary"
                     style={{ width: 'auto', padding: '0 0.75rem', fontSize: '0.8rem', height: '30px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399', borderRadius: '6px' }}
                   >
-                    📊 Unduh CSV
+                    📊 Unduh Excel
                   </button>
                 </div>
               </div>

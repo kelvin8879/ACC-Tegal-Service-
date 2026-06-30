@@ -152,6 +152,6 @@ INSERT INTO coordinators (email, password, role) VALUES
 ('mgutegal@gmail.com', 'MGU100', 'master'),
 ('adilasesilia@gmail.com', 'Adila123', 'operation'),
 ('milleniatercia@gmail.com', 'Makassar88', 'pe'),
-('yosiyanandas@gmail.com', 'Lautanbiru21', 'cabang')
+('yosiyanandas@gmail.com', ' ', 'cabang')
 ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role;
 
