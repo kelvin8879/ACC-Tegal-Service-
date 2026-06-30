@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
@@ -10,6 +10,7 @@ export default function DashboardPage() {
   const [prospects, setProspects] = useState([]);
   const [officers, setOfficers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const isFirstLoadRef = useRef(true);
 
   // Database Connection and Size States
   const [dbStatus, setDbStatus] = useState('CHECKING'); // 'CONNECTED' | 'DISCONNECTED' | 'CHECKING'
@@ -332,7 +333,9 @@ export default function DashboardPage() {
   // Load Data
   const loadData = useCallback(async () => {
     if (!user) return;
-    setLoading(true);
+    if (isFirstLoadRef.current) {
+      setLoading(true);
+    }
 
     let rawProspects = [];
     let rawOfficers = [];
@@ -497,6 +500,7 @@ export default function DashboardPage() {
     setProspects(filteredProspects);
     setContacting(filteredContacting);
     setLoading(false);
+    isFirstLoadRef.current = false;
   }, [user]);
 
   useEffect(() => {
@@ -714,10 +718,10 @@ export default function DashboardPage() {
     const todayStr = new Date().toISOString().split('T')[0];
     const updateFields = {
       pipeline: 'Aplikasi IN',
-      segment: '', // Empty on transition as requested
+      segment: null, // Set to null instead of '' to satisfy database check constraint
       date_in: todayStr, // Default date
       status: 'Belum Melengkapi Data', // Default status
-      no_reg: '', // Needs to be filled in later
+      no_reg: null, // Set to null instead of '' to satisfy database check constraint
       keterangan: '-', // Set to '-' instead of empty or text as requested
     };
 
