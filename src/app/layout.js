@@ -1,7 +1,7 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'ACC Prospect Tracker',
+  title: 'S.W.A.T - Tegal',
   description: 'Mobile-friendly prospect pipeline tracking system for Officers and Coordinators',
 };
 

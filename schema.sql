@@ -2,7 +2,9 @@
 CREATE TABLE IF NOT EXISTS officers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
-    pin TEXT NOT NULL, -- 4 digit PIN
+    pin TEXT NOT NULL, -- 4 digit PIN or Password
+    email TEXT, -- Added for email reminders
+    division TEXT DEFAULT 'Sales C2', -- Added for division filter (Operation / Sales C2)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -67,11 +69,21 @@ END;
 $$;
 
 -- Seed Initial Officers
-INSERT INTO officers (name, pin) VALUES 
-('Budi Pratama', '1234'),
-('Siti Aminah', '5678'),
-('Andi Wijaya', '1111')
-ON CONFLICT (name) DO NOTHING;
+INSERT INTO officers (name, pin, division) VALUES 
+('Budi Pratama', '1234', 'Sales C2'),
+('Siti Aminah', '5678', 'Sales C2'),
+('Andi Wijaya', '1111', 'Sales C2'),
+('Mayfanny', 'May123', 'Operation'),
+('Livia', 'Livi123', 'Operation'),
+('Dian', 'Dian123', 'Operation'),
+('Dani', 'Dani123', 'Operation'),
+('Agung', 'Agung123', 'Operation'),
+('Vivi', 'Vivi123', 'Operation'),
+('Kiki', 'Kiki123', 'Operation'),
+('Husni', 'Husni123', 'Operation'),
+('Banu', 'Banu123', 'Operation'),
+('Dwi', 'Dwi123', 'Operation')
+ON CONFLICT (name) DO UPDATE SET pin = EXCLUDED.pin, division = EXCLUDED.division;
 
 -- Create Contacting Table
 CREATE TABLE IF NOT EXISTS contacting (
@@ -90,4 +102,29 @@ CREATE POLICY "Allow public read access on contacting" ON contacting FOR SELECT 
 CREATE POLICY "Allow public insert access on contacting" ON contacting FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on contacting" ON contacting FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete access on contacting" ON contacting FOR DELETE USING (true);
+
+-- Create Coordinators Table
+CREATE TABLE IF NOT EXISTS coordinators (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('master', 'operation', 'sales_c2')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable Row Level Security (RLS)
+ALTER TABLE coordinators ENABLE ROW LEVEL SECURITY;
+
+-- Public read/write policies for MVP simplicity
+CREATE POLICY "Allow public read access on coordinators" ON coordinators FOR SELECT USING (true);
+CREATE POLICY "Allow public insert access on coordinators" ON coordinators FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update access on coordinators" ON coordinators FOR UPDATE USING (true);
+CREATE POLICY "Allow public delete access on coordinators" ON coordinators FOR DELETE USING (true);
+
+-- Seed Initial Coordinators
+INSERT INTO coordinators (email, password, role) VALUES
+('admin@acc.co.id', 'admin123', 'master'),
+('op@acc.co.id', 'op123', 'operation'),
+('sales@acc.co.id', 'sales123', 'sales_c2')
+ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role;
 

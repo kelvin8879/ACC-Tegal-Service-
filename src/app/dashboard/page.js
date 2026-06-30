@@ -52,6 +52,24 @@ export default function DashboardPage() {
   // Date Filter for Officer Performance Table
   const [perfQuickFilter, setPerfQuickFilter] = useState('month'); // 'today' | 'month' | 'custom'
   const [filterOfficerPerf, setFilterOfficerPerf] = useState('');
+  const [filterOfficerAct, setFilterOfficerAct] = useState('');
+  const [filterOfficerPipe, setFilterOfficerPipe] = useState('');
+  const [filterDivisionAct, setFilterDivisionAct] = useState('');
+  const [filterDivisionPipe, setFilterDivisionPipe] = useState('');
+  const [selectedWaProspectId, setSelectedWaProspectId] = useState('');
+  const [isOffline, setIsOffline] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Helper to generate UUIDs
+  const generateUUID = () => {
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
+      return window.crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
 
   // Chart 1 Metric Visibility Toggles
   const [showCallLine, setShowCallLine] = useState(true);
@@ -69,7 +87,9 @@ export default function DashboardPage() {
   // Get today's business date
   const getTodayBusinessDateStr = () => {
     const now = new Date();
-    const shifted = new Date(now.getTime() - (3 * 60 * 60 * 1000));
+    // Shift to UTC+7 first, then apply 3-hour business day shift
+    const localTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    const shifted = new Date(localTime.getTime() - (3 * 60 * 60 * 1000));
     return shifted.toISOString().split('T')[0];
   };
 
@@ -109,6 +129,10 @@ export default function DashboardPage() {
   // Coordinator Form
   const [newOfficerName, setNewOfficerName] = useState('');
   const [newOfficerPin, setNewOfficerPin] = useState('');
+  const [newOfficerEmail, setNewOfficerEmail] = useState('');
+  const [editingOfficerId, setEditingOfficerId] = useState(null);
+  const [editingOfficerEmail, setEditingOfficerEmail] = useState('');
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
   const [coordError, setCoordError] = useState('');
   const [coordSuccess, setCoordSuccess] = useState('');
 
@@ -116,7 +140,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const session = localStorage.getItem('acc_session');
     if (!session) {
-      router.push('/');
+      router.replace('/');
     } else {
       setUser(JSON.parse(session));
     }
@@ -149,7 +173,9 @@ export default function DashboardPage() {
     if (!createdAtStr) return '';
     try {
       const date = new Date(createdAtStr);
-      const shiftedDate = new Date(date.getTime() - (3 * 60 * 60 * 1000));
+      // Shift to UTC+7 first, then apply 3-hour business day shift
+      const localTime = new Date(date.getTime() + (7 * 60 * 60 * 1000));
+      const shiftedDate = new Date(localTime.getTime() - (3 * 60 * 60 * 1000));
       return shiftedDate.toISOString().split('T')[0];
     } catch (e) {
       return '';
@@ -161,16 +187,132 @@ export default function DashboardPage() {
     return dateStr >= startDate && dateStr <= endDate;
   };
 
+  // Sync offline queue to Supabase
+  const syncOfflineData = useCallback(async () => {
+    if (isSyncing) return;
+    const queue = JSON.parse(localStorage.getItem('acc_sync_queue') || '[]');
+    if (queue.length === 0) return;
+
+    // Check if online
+    try {
+      const { error } = await supabase.from('officers').select('id').limit(1);
+      if (error) return; // Still offline
+    } catch (e) {
+      return; // Offline
+    }
+
+    setIsSyncing(true);
+    const remainingQueue = [...queue];
+
+    for (const item of queue) {
+      try {
+        let error;
+        if (item.action === 'insert') {
+          const res = await supabase.from(item.table).insert([item.payload]);
+          error = res.error;
+        } else if (item.action === 'update') {
+          const res = await supabase.from(item.table).update(item.payload).eq('id', item.targetId);
+          error = res.error;
+        } else if (item.action === 'delete') {
+          const res = await supabase.from(item.table).delete().eq('id', item.targetId);
+          error = res.error;
+        }
+        if (error) throw error;
+
+        remainingQueue.shift();
+        localStorage.setItem('acc_sync_queue', JSON.stringify(remainingQueue));
+      } catch (err) {
+        console.error('Failed to sync item:', item, err);
+        // If it's a structural database error (not a network error), skip to avoid blockages
+        if (err.status && err.status !== 0) {
+          remainingQueue.shift();
+          localStorage.setItem('acc_sync_queue', JSON.stringify(remainingQueue));
+        } else {
+          break; // Network error, stop sync for now
+        }
+      }
+    }
+    setIsSyncing(false);
+    loadData();
+  }, [isSyncing]);
+
+  // Handle write operations with offline fallback
+  async function executeWrite(action, table, payload, targetId = null) {
+    const isOnlineNow = navigator.onLine;
+    let success = false;
+
+    if (isOnlineNow && !user.isMock) {
+      try {
+        let error;
+        if (action === 'insert') {
+          const res = await supabase.from(table).insert([payload]);
+          error = res.error;
+        } else if (action === 'update') {
+          const res = await supabase.from(table).update(payload).eq('id', targetId);
+          error = res.error;
+        } else if (action === 'delete') {
+          const res = await supabase.from(table).delete().eq('id', targetId);
+          error = res.error;
+        }
+        
+        if (!error) {
+          success = true;
+          setIsOffline(false);
+        } else {
+          console.warn('Supabase write error, queueing locally:', error.message);
+        }
+      } catch (err) {
+        console.warn('Network write error, queueing locally:', err.message);
+      }
+    }
+
+    if (!success && !user.isMock) {
+      const queue = JSON.parse(localStorage.getItem('acc_sync_queue') || '[]');
+      queue.push({
+        id: 'sync-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
+        table,
+        action,
+        payload,
+        targetId,
+        createdAt: new Date().toISOString()
+      });
+      localStorage.setItem('acc_sync_queue', JSON.stringify(queue));
+      setIsOffline(true);
+    }
+
+    // Optimistically update React State
+    if (table === 'prospects') {
+      let updatedProspects = [...prospects];
+      if (action === 'insert') {
+        updatedProspects = [payload, ...prospects];
+      } else if (action === 'update') {
+        updatedProspects = prospects.map(p => p.id === targetId ? { ...p, ...payload } : p);
+      } else if (action === 'delete') {
+        updatedProspects = prospects.filter(p => p.id !== targetId);
+      }
+      setProspects(updatedProspects);
+      localStorage.setItem('acc_prospects_cache', JSON.stringify(updatedProspects));
+    }
+
+    if (success) {
+      await loadData();
+    }
+  }
+
   // Load Data
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
+    let rawProspects = [];
+    let rawOfficers = [];
+    let rawContacting = [];
+
     if (user.isMock) {
-      // Load from localStorage
+      // Load prospects from localStorage (force re-seed if old schema detected)
       const localProspects = localStorage.getItem('acc_prospects');
-      if (localProspects) {
-        setProspects(JSON.parse(localProspects));
+      if (localProspects && JSON.parse(localProspects).some(p => p.officer_id === 'mock-op-1')) {
+        rawProspects = JSON.parse(localProspects);
       } else {
         // Seed initial mock prospects representing the 3 stages with different dates
         const todayStr = new Date().toISOString().split('T')[0];
@@ -184,7 +326,7 @@ export default function DashboardPage() {
         const seedProspects = [
           {
             id: 'p-1',
-            officer_id: 'mock-1',
+            officer_id: 'mock-op-1',
             pipeline: 'Prospek',
             pengajuan: 'Top Up',
             nama: 'Rian Hidayat',
@@ -194,11 +336,11 @@ export default function DashboardPage() {
             call: true,
             blasting: false,
             note: 'Butuh follow up minggu depan',
-            created_at: new Date().toISOString(), // Today -> Prospek (Today) + Call (Today)
+            created_at: new Date().toISOString(),
           },
           {
             id: 'p-1-old',
-            officer_id: 'mock-1',
+            officer_id: 'mock-op-1',
             pipeline: 'Prospek',
             pengajuan: 'Non Top Up',
             nama: 'Joko Widodo (Kemarin)',
@@ -208,11 +350,11 @@ export default function DashboardPage() {
             call: true,
             blasting: true,
             note: 'Telepon ulang nanti',
-            created_at: yesterday.toISOString(), // Yesterday -> NOT counted in Today's Prospek/Call/Blast
+            created_at: yesterday.toISOString(),
           },
           {
             id: 'p-2',
-            officer_id: 'mock-1',
+            officer_id: 'mock-op-2',
             pipeline: 'Prospek',
             pengajuan: 'Non Top Up',
             nama: 'Sarah Wijaya',
@@ -222,11 +364,11 @@ export default function DashboardPage() {
             call: false,
             blasting: true,
             note: 'Menunggu respon WA',
-            created_at: new Date().toISOString(), // Today -> Prospek (Today) + Blasting (Today)
+            created_at: new Date().toISOString(),
           },
           {
             id: 'p-3',
-            officer_id: 'mock-1',
+            officer_id: 'mock-op-3',
             pipeline: 'Aplikasi IN',
             pengajuan: 'Non Top Up',
             nama: 'Dewi Lestari',
@@ -238,7 +380,7 @@ export default function DashboardPage() {
             note: 'Berkas lengkap sedang diverifikasi',
             segment: 'Gold',
             no_reg: '1234567',
-            date_in: todayStr, // This Month -> Counted in This Month's IN
+            date_in: todayStr,
             keterangan: 'Sedang diverifikasi',
             created_at: new Date().toISOString(),
           },
@@ -256,7 +398,7 @@ export default function DashboardPage() {
             note: 'Perbaikan berkas',
             segment: 'Bronze',
             no_reg: '1112223',
-            date_in: lastMonthStr, // Last Month -> NOT counted in This Month's IN
+            date_in: lastMonthStr,
             keterangan: 'Menunggu tanda tangan',
             created_at: lastMonth.toISOString(),
           },
@@ -275,45 +417,55 @@ export default function DashboardPage() {
             segment: 'Platinum',
             no_reg: '7654321',
             date_in: todayStr,
-            date_valid: todayStr, // This Month -> Counted in This Month's Valid
+            date_valid: todayStr,
             keterangan: 'Aplikasi disetujui',
             created_at: new Date().toISOString(),
           },
         ];
         localStorage.setItem('acc_prospects', JSON.stringify(seedProspects));
-        setProspects(seedProspects);
+        rawProspects = seedProspects;
       }
 
-      // Load officers from localStorage
+      // Load officers from localStorage (force re-seed if old schema detected)
       const localOfficers = localStorage.getItem('acc_officers');
-      if (localOfficers) {
-        setOfficers(JSON.parse(localOfficers));
+      if (localOfficers && JSON.parse(localOfficers).some(o => o.name === 'Mayfanny')) {
+        rawOfficers = JSON.parse(localOfficers);
       } else {
         const seedOfficers = [
-          { id: 'mock-1', name: 'Budi Pratama (Mock)', pin: '1234' },
-          { id: 'mock-2', name: 'Siti Aminah (Mock)', pin: '5678' },
-          { id: 'mock-3', name: 'Andi Wijaya (Mock)', pin: '1111' },
+          { id: 'mock-op-1', name: 'Mayfanny', pin: 'May123', division: 'Operation' },
+          { id: 'mock-op-2', name: 'Livia', pin: 'Livi123', division: 'Operation' },
+          { id: 'mock-op-3', name: 'Dian', pin: 'Dian123', division: 'Operation' },
+          { id: 'mock-op-4', name: 'Dani', pin: 'Dani123', division: 'Operation' },
+          { id: 'mock-op-5', name: 'Agung', pin: 'Agung123', division: 'Operation' },
+          { id: 'mock-op-6', name: 'Vivi', pin: 'Vivi123', division: 'Operation' },
+          { id: 'mock-op-7', name: 'Kiki', pin: 'Kiki123', division: 'Operation' },
+          { id: 'mock-op-8', name: 'Husni', pin: 'Husni123', division: 'Operation' },
+          { id: 'mock-op-9', name: 'Banu', pin: 'Banu123', division: 'Operation' },
+          { id: 'mock-op-10', name: 'Dwi', pin: 'Dwi123', division: 'Operation' },
+          { id: 'mock-1', name: 'Budi Pratama', pin: '1234', division: 'Sales C2' },
+          { id: 'mock-2', name: 'Siti Aminah', pin: '5678', division: 'Sales C2' },
+          { id: 'mock-3', name: 'Andi Wijaya', pin: '1111', division: 'Sales C2' },
         ];
         localStorage.setItem('acc_officers', JSON.stringify(seedOfficers));
-        setOfficers(seedOfficers);
+        rawOfficers = seedOfficers;
       }
 
       // Load contacting from localStorage
       const localContacting = localStorage.getItem('acc_contacting');
       if (localContacting) {
-        setContacting(JSON.parse(localContacting));
+        rawContacting = JSON.parse(localContacting);
       } else {
         const seedContacting = [
           {
             id: 'c-1',
-            officer_id: 'mock-1',
+            officer_id: 'mock-op-1',
             call_count: 10,
             blasting_count: 20,
             created_at: new Date().toISOString(),
           }
         ];
         localStorage.setItem('acc_contacting', JSON.stringify(seedContacting));
-        setContacting(seedContacting);
+        rawContacting = seedContacting;
       }
     } else {
       // Load from Supabase
@@ -327,14 +479,19 @@ export default function DashboardPage() {
 
         const { data: pData, error: pError } = await prospectQuery;
         if (pError) throw pError;
-        setProspects(pData || []);
+        rawProspects = pData || [];
+        localStorage.setItem('acc_prospects_cache', JSON.stringify(rawProspects));
 
         const { data: oData, error: oError } = await supabase
           .from('officers')
-          .select('id, name')
+          .select('*')
           .order('name', { ascending: true });
         if (oError) throw oError;
-        setOfficers(oData || []);
+        rawOfficers = (oData || []).map(o => ({
+          ...o,
+          division: o.division || 'Sales C2'
+        }));
+        localStorage.setItem('acc_officers_cache', JSON.stringify(rawOfficers));
 
         // Load contacting from Supabase
         let cData = [];
@@ -346,23 +503,101 @@ export default function DashboardPage() {
           const { data, error } = await contactingQuery;
           if (!error) {
             cData = data;
-          } else {
-            console.warn('Contacting table might not exist yet:', error.message);
           }
         } catch (err) {
           console.warn('Failed to fetch contacting:', err);
         }
-        setContacting(cData || []);
+        rawContacting = cData || [];
+        localStorage.setItem('acc_contacting_cache', JSON.stringify(rawContacting));
+        
+        setIsOffline(false);
       } catch (err) {
-        console.error('Error fetching data from Supabase:', err.message);
+        console.warn('Offline or network error, loading from local cache:', err.message);
+        setIsOffline(true);
+
+        const cachedProspects = localStorage.getItem('acc_prospects_cache');
+        const cachedOfficers = localStorage.getItem('acc_officers_cache');
+        const cachedContacting = localStorage.getItem('acc_contacting_cache');
+
+        rawProspects = cachedProspects ? JSON.parse(cachedProspects) : [];
+        rawOfficers = cachedOfficers ? JSON.parse(cachedOfficers) : [];
+        rawContacting = cachedContacting ? JSON.parse(cachedContacting) : [];
       }
     }
+
+    // Apply Role-Based Access Control Filters
+    let filteredOfficers = rawOfficers;
+    let filteredProspects = rawProspects;
+    let filteredContacting = rawContacting;
+
+    if (user.role === 'coordinator') {
+      if (user.coordRole === 'operation') {
+        filteredOfficers = rawOfficers.filter(o => o.division === 'Operation');
+        const opOfficerIds = filteredOfficers.map(o => o.id);
+        filteredProspects = rawProspects.filter(p => opOfficerIds.includes(p.officer_id));
+        filteredContacting = rawContacting.filter(c => opOfficerIds.includes(c.officer_id));
+      } else if (user.coordRole === 'sales_c2') {
+        filteredOfficers = rawOfficers.filter(o => o.division === 'Sales C2');
+        const salesOfficerIds = filteredOfficers.map(o => o.id);
+        filteredProspects = rawProspects.filter(p => salesOfficerIds.includes(p.officer_id));
+        filteredContacting = rawContacting.filter(c => salesOfficerIds.includes(c.officer_id));
+      }
+    }
+
+    setOfficers(filteredOfficers);
+    setProspects(filteredProspects);
+    setContacting(filteredContacting);
     setLoading(false);
   }, [user]);
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+
+    // Listen for online/offline status
+    const handleOnline = () => {
+      setIsOffline(false);
+      syncOfflineData();
+    };
+    const handleOffline = () => {
+      setIsOffline(true);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Periodic sync check (every 20 seconds)
+    const syncInterval = setInterval(() => {
+      if (navigator.onLine) {
+        syncOfflineData();
+      }
+    }, 20000);
+
+    if (!user || user.isMock) {
+      return () => {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+        clearInterval(syncInterval);
+      };
+    }
+
+    // Subscribe to realtime database changes for prospects and contacting tables
+    const channel = supabase
+      .channel('realtime-prospects')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'prospects' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contacting' }, () => {
+        loadData();
+      })
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      clearInterval(syncInterval);
+      supabase.removeChannel(channel);
+    };
+  }, [loadData, user, syncOfflineData]);
 
   // Check Supabase connection and size
   useEffect(() => {
@@ -402,10 +637,10 @@ export default function DashboardPage() {
   }, [user, prospects]);
 
   // Logout
-  function handleLogout() {
+  const handleLogout = () => {
     localStorage.removeItem('acc_session');
-    router.push('/');
-  }
+    router.replace('/');
+  };
 
   // Save/Update helper
   async function saveProspectsList(updatedList) {
@@ -525,20 +760,13 @@ export default function DashboardPage() {
         );
         await saveProspectsList(updated);
       } else {
-        try {
-          const { error } = await supabase
-            .from('prospects')
-            .update(updateFields)
-            .eq('id', selectedProspect.id);
-          if (error) throw error;
-          await saveProspectsList();
-        } catch (err) {
-          alert('Gagal menyimpan perubahan: ' + err.message);
-        }
+        await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
       }
     } else {
       // Add Mode: Insert new
+      const recordId = generateUUID();
       const newRecord = {
+        id: recordId,
         officer_id: user.role === 'officer' ? user.id : null,
         pipeline: 'Prospek', // Starts at Prospek
         pengajuan: inputForm.pengajuan,
@@ -549,24 +777,14 @@ export default function DashboardPage() {
         call: false, // Defaulted to false
         blasting: false, // Defaulted to false
         note: cleanNote,
+        created_at: new Date().toISOString(),
       };
 
       if (user.isMock) {
-        const newItem = {
-          ...newRecord,
-          id: 'p-' + Date.now(),
-          created_at: new Date().toISOString(),
-        };
-        const updated = [newItem, ...prospects];
+        const updated = [newRecord, ...prospects];
         await saveProspectsList(updated);
       } else {
-        try {
-          const { error } = await supabase.from('prospects').insert([newRecord]);
-          if (error) throw error;
-          await saveProspectsList();
-        } catch (err) {
-          alert('Gagal menambah data: ' + err.message);
-        }
+        await executeWrite('insert', 'prospects', newRecord);
       }
     }
 
@@ -592,16 +810,7 @@ export default function DashboardPage() {
       );
       await saveProspectsList(updated);
     } else {
-      try {
-        const { error } = await supabase
-          .from('prospects')
-          .update(updateFields)
-          .eq('id', prospect.id);
-        if (error) throw error;
-        await saveProspectsList();
-      } catch (err) {
-        alert('Gagal memproses ke Aplikasi IN: ' + err.message);
-      }
+      await executeWrite('update', 'prospects', updateFields, prospect.id);
     }
     setFilterStatus('');
     setActiveTab('Aplikasi IN');
@@ -648,16 +857,7 @@ export default function DashboardPage() {
       );
       await saveProspectsList(updated);
     } else {
-      try {
-        const { error } = await supabase
-          .from('prospects')
-          .update(updateFields)
-          .eq('id', selectedProspect.id);
-        if (error) throw error;
-        await saveProspectsList();
-      } catch (err) {
-        alert('Gagal mengupdate data: ' + err.message);
-      }
+      await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
     }
 
     setIsLengkapiModalOpen(false);
@@ -696,16 +896,7 @@ export default function DashboardPage() {
       );
       await saveProspectsList(updated);
     } else {
-      try {
-        const { error } = await supabase
-          .from('prospects')
-          .update(updateFields)
-          .eq('id', selectedProspect.id);
-        if (error) throw error;
-        await saveProspectsList();
-      } catch (err) {
-        alert('Gagal menyimpan tanggal valid: ' + err.message);
-      }
+      await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
     }
 
     setIsDateValidModalOpen(false);
@@ -715,15 +906,13 @@ export default function DashboardPage() {
     }
   }
 
-  // Coordinator: Add Officer
+  // Coordinator: Add New Officer
   async function handleAddOfficer(e) {
     e.preventDefault();
-    setCoordError('');
-    setCoordSuccess('');
-
     if (!newOfficerName || !newOfficerPin) {
       return setCoordError('Nama dan PIN harus diisi.');
     }
+
     if (newOfficerPin.length !== 4 || !/^\d+$/.test(newOfficerPin)) {
       return setCoordError('PIN harus berisi 4 digit angka.');
     }
@@ -733,6 +922,7 @@ export default function DashboardPage() {
         id: 'mock-' + Date.now(),
         name: newOfficerName,
         pin: newOfficerPin,
+        email: newOfficerEmail || '',
       };
       const updatedOfficers = [...officers, newOfficer];
       localStorage.setItem('acc_officers', JSON.stringify(updatedOfficers));
@@ -740,22 +930,63 @@ export default function DashboardPage() {
       setCoordSuccess(`Officer ${newOfficerName} berhasil ditambahkan!`);
       setNewOfficerName('');
       setNewOfficerPin('');
+      setNewOfficerEmail('');
     } else {
       try {
         const { error } = await supabase
           .from('officers')
-          .insert([{ name: newOfficerName, pin: newOfficerPin }]);
+          .insert([{ name: newOfficerName, pin: newOfficerPin, email: newOfficerEmail || null }]);
         if (error) throw error;
 
         setCoordSuccess(`Officer ${newOfficerName} berhasil ditambahkan!`);
         setNewOfficerName('');
         setNewOfficerPin('');
+        setNewOfficerEmail('');
         await loadData();
       } catch (err) {
         setCoordError('Gagal menambah officer: ' + err.message);
       }
     }
   }
+
+  // Coordinator: Update Officer Email
+  async function handleUpdateOfficerEmail(id, name, email) {
+    if (user.isMock) {
+      const updatedOfficers = officers.map(o => o.id === id ? { ...o, email } : o);
+      localStorage.setItem('acc_officers', JSON.stringify(updatedOfficers));
+      setOfficers(updatedOfficers);
+      setEditingOfficerId(null);
+    } else {
+      try {
+        const { error } = await supabase
+          .from('officers')
+          .update({ email: email || null })
+          .eq('id', id);
+        if (error) throw error;
+        await loadData();
+        setEditingOfficerId(null);
+      } catch (err) {
+        alert('Gagal memperbarui email officer: ' + err.message);
+      }
+    }
+  }
+
+  // Coordinator: Test Trigger Email Reminder
+  const handleTestEmail = async () => {
+    setTestEmailLoading(true);
+    try {
+      const res = await fetch('/api/reminders');
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Sukses! ${data.message || ''}\nDetail: ${JSON.stringify(data.sentReminders)}`);
+      } else {
+        alert(`Gagal: ${data.error || 'Terjadi kesalahan'} - ${data.details || ''}`);
+      }
+    } catch (err) {
+      alert('Gagal memicu email: ' + err.message);
+    }
+    setTestEmailLoading(false);
+  };
 
   // Coordinator: Delete Officer
   async function handleDeleteOfficer(id, name) {
@@ -887,23 +1118,26 @@ export default function DashboardPage() {
 
     if (actQuickFilter === '7days') {
       const today = new Date();
-      const start = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const localToday = new Date(today.getTime() + (7 * 60 * 60 * 1000));
+      const start = new Date(localToday.getTime() - 6 * 24 * 60 * 60 * 1000);
       const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
-      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(localToday.getTime() - (3 * 60 * 60 * 1000));
       startDate = startShifted.toISOString().split('T')[0];
       endDate = endShifted.toISOString().split('T')[0];
     } else if (actQuickFilter === '15days') {
       const today = new Date();
-      const start = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const localToday = new Date(today.getTime() + (7 * 60 * 60 * 1000));
+      const start = new Date(localToday.getTime() - 14 * 24 * 60 * 60 * 1000);
       const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
-      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(localToday.getTime() - (3 * 60 * 60 * 1000));
       startDate = startShifted.toISOString().split('T')[0];
       endDate = endShifted.toISOString().split('T')[0];
     } else if (actQuickFilter === '30days') {
       const today = new Date();
-      const start = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      const localToday = new Date(today.getTime() + (7 * 60 * 60 * 1000));
+      const start = new Date(localToday.getTime() - 29 * 24 * 60 * 60 * 1000);
       const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
-      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(localToday.getTime() - (3 * 60 * 60 * 1000));
       startDate = startShifted.toISOString().split('T')[0];
       endDate = endShifted.toISOString().split('T')[0];
     }
@@ -918,23 +1152,26 @@ export default function DashboardPage() {
 
     if (pipeQuickFilter === '7days') {
       const today = new Date();
-      const start = new Date(today.getTime() - 6 * 24 * 60 * 60 * 1000);
+      const localToday = new Date(today.getTime() + (7 * 60 * 60 * 1000));
+      const start = new Date(localToday.getTime() - 6 * 24 * 60 * 60 * 1000);
       const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
-      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(localToday.getTime() - (3 * 60 * 60 * 1000));
       startDate = startShifted.toISOString().split('T')[0];
       endDate = endShifted.toISOString().split('T')[0];
     } else if (pipeQuickFilter === '15days') {
       const today = new Date();
-      const start = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const localToday = new Date(today.getTime() + (7 * 60 * 60 * 1000));
+      const start = new Date(localToday.getTime() - 14 * 24 * 60 * 60 * 1000);
       const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
-      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(localToday.getTime() - (3 * 60 * 60 * 1000));
       startDate = startShifted.toISOString().split('T')[0];
       endDate = endShifted.toISOString().split('T')[0];
     } else if (pipeQuickFilter === '30days') {
       const today = new Date();
-      const start = new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+      const localToday = new Date(today.getTime() + (7 * 60 * 60 * 1000));
+      const start = new Date(localToday.getTime() - 29 * 24 * 60 * 60 * 1000);
       const startShifted = new Date(start.getTime() - (3 * 60 * 60 * 1000));
-      const endShifted = new Date(today.getTime() - (3 * 60 * 60 * 1000));
+      const endShifted = new Date(localToday.getTime() - (3 * 60 * 60 * 1000));
       startDate = startShifted.toISOString().split('T')[0];
       endDate = endShifted.toISOString().split('T')[0];
     }
@@ -1011,13 +1248,19 @@ export default function DashboardPage() {
       safetyCounter++;
     }
 
-    const filteredProspects = filterOfficerPerf
-      ? prospects.filter((p) => p.officer_id === filterOfficerPerf)
-      : prospects;
+    let filteredProspects = prospects;
+    let filteredContacting = contacting;
 
-    const filteredContacting = filterOfficerPerf
-      ? contacting.filter((c) => c.officer_id === filterOfficerPerf)
-      : contacting;
+    if (filterDivisionAct) {
+      const allowedOfficerIds = officers.filter(o => o.division === filterDivisionAct).map(o => o.id);
+      filteredProspects = prospects.filter(p => allowedOfficerIds.includes(p.officer_id));
+      filteredContacting = contacting.filter(c => allowedOfficerIds.includes(c.officer_id));
+    }
+
+    if (filterOfficerAct) {
+      filteredProspects = filteredProspects.filter((p) => p.officer_id === filterOfficerAct);
+      filteredContacting = filteredContacting.filter((c) => c.officer_id === filterOfficerAct);
+    }
 
     return dateArray.map((dateStr) => {
       const dateObj = new Date(dateStr);
@@ -1066,9 +1309,16 @@ export default function DashboardPage() {
       safetyCounter++;
     }
 
-    const filteredProspects = filterOfficerPerf
-      ? prospects.filter((p) => p.officer_id === filterOfficerPerf)
-      : prospects;
+    let filteredProspects = prospects;
+
+    if (filterDivisionPipe) {
+      const allowedOfficerIds = officers.filter(o => o.division === filterDivisionPipe).map(o => o.id);
+      filteredProspects = prospects.filter(p => allowedOfficerIds.includes(p.officer_id));
+    }
+
+    if (filterOfficerPipe) {
+      filteredProspects = filteredProspects.filter((p) => p.officer_id === filterOfficerPipe);
+    }
 
     return dateArray.map((dateStr) => {
       const dateObj = new Date(dateStr);
@@ -1238,6 +1488,67 @@ export default function DashboardPage() {
     const reportText = `Nama : ${user.name}\nCall : ${stats.countCall}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}\nAplikasi In : ${stats.countAplikasiInToday}\nAplikasi Valid : ${stats.countAplikasiValidToday}`;
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(reportText)}`;
     window.open(waUrl, '_blank');
+  };
+
+  // Format date as DD/MM/YYYY
+  const formatDdMmYyyy = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const d = new Date(dateStr);
+      // Shift to UTC+7 first
+      const localTime = new Date(d.getTime() + (7 * 60 * 60 * 1000));
+      const day = String(localTime.getUTCDate()).padStart(2, '0');
+      const month = String(localTime.getUTCMonth() + 1).padStart(2, '0');
+      const year = localTime.getUTCFullYear();
+      return `${day}/${month}/${year}`;
+    } catch (e) {
+      return '';
+    }
+  };
+
+  // Send single prospect details to WhatsApp
+  const handleSendWaProspect = () => {
+    const list = prospects.filter(p => p.pipeline === 'Prospek');
+    // If officer, filter list by officer id
+    const filteredList = user.role === 'officer' ? list.filter(p => p.officer_id === user.id) : list;
+    
+    if (filteredList.length === 0) {
+      alert('Tidak ada data prospek untuk dikirim.');
+      return;
+    }
+
+    const prospect = filteredList.find(p => p.id === selectedWaProspectId) || filteredList[0];
+    const prospectDate = formatDdMmYyyy(prospect.created_at) || formatDdMmYyyy(new Date());
+    const officerName = officers.find(o => o.id === prospect.officer_id)?.name || user.name;
+
+    const text = `*PROSPECT ORDER OPERATION ${prospectDate}*
+PENGAJUAN : ${prospect.pengajuan || ''}
+NAMA : ${prospect.nama || ''}
+REFERRAL : ${officerName || ''}
+STATUS : ${prospect.status || 'Open'}
+Alamat : ${prospect.alamat || '-'}
+*NOTE:* ${prospect.note || '-'}`;
+
+    const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+  };
+
+  // Delete a single prospect from Supabase / LocalStorage
+  const handleDeleteProspect = async () => {
+    if (!selectedProspect) return;
+
+    const confirmDelete = window.confirm(`Apakah Anda yakin ingin menghapus prospek "${selectedProspect.nama}" secara permanen dari database?`);
+    if (!confirmDelete) return;
+
+    if (user.isMock) {
+      const updated = prospects.filter(p => p.id !== selectedProspect.id);
+      await saveProspectsList(updated);
+    } else {
+      await executeWrite('delete', 'prospects', null, selectedProspect.id);
+    }
+    setIsInputModalOpen(false);
+    setIsLengkapiModalOpen(false);
+    setSelectedProspect(null);
   };
 
   // Download Performa Officer as Excel (CSV)
@@ -1463,6 +1774,46 @@ export default function DashboardPage() {
     }
   };
 
+  // Download Chart 1 (Tren Aktivitas & Prospek) data as CSV
+  const handleDownloadChart1CSV = () => {
+    const data = getChartData();
+    const headers = ['Tanggal', 'Call', 'Blasting', 'Prospek'];
+    const csvRows = data.map(d => [formatDate(d.dateStr), d.call, d.blasting, d.prospek]);
+    const csvContent = [
+      headers.join(','),
+      ...csvRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tren_aktivitas_dan_prospek.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Download Chart 2 (Tren Pipeline Aplikasi) data as CSV
+  const handleDownloadChart2CSV = () => {
+    const data = getPipelineChartData();
+    const headers = ['Tanggal', 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'];
+    const csvRows = data.map(d => [formatDate(d.dateStr), d.prospek, d.aplikasiIn, d.aplikasiValid]);
+    const csvContent = [
+      headers.join(','),
+      ...csvRows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tren_pipeline_aplikasi.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading || !user) {
     return (
       <main className="container flex-center" style={{ minHeight: '100vh' }}>
@@ -1477,7 +1828,7 @@ export default function DashboardPage() {
       <header className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2.5rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-            <h1 className="text-gradient" style={{ fontSize: '1.75rem', margin: 0 }}>ACC Prospect Tracker</h1>
+            <h1 className="text-gradient" style={{ fontSize: '1.75rem', margin: 0 }}>S.W.A.T - Tegal</h1>
             
             {/* Delete All Data Button (Visible only to Coordinators) */}
             {user.role === 'coordinator' && (
@@ -1545,24 +1896,63 @@ export default function DashboardPage() {
         </div>
       </header>
 
+      {/* Offline Warning Banner */}
+      {isOffline && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.15)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '8px',
+          padding: '0.75rem 1.25rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          color: '#f87171',
+          fontSize: '0.9rem',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <span style={{ fontSize: '1.1rem' }}>⚠️</span>
+          <div>
+            <strong>Mode Offline Aktif:</strong> Koneksi terputus. Perubahan Anda disimpan sementara di perangkat ini dan akan diunggah otomatis saat sinyal kembali.
+          </div>
+        </div>
+      )}
+
       {/* KPI Stats Grid - Divided into Daily vs Monthly Sections */}
       <div style={{ marginBottom: '2.5rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
         
         {/* Section 1: Harian (Call, Blasting, Prospek) */}
         <div>
           <div style={{ 
-            fontSize: '0.8rem', 
-            textTransform: 'uppercase', 
-            letterSpacing: '0.08em', 
-            color: 'var(--text-secondary)', 
-            marginBottom: '0.75rem', 
-            fontWeight: '700', 
             display: 'flex', 
+            justifyContent: 'space-between', 
             alignItems: 'center', 
-            gap: '0.5rem' 
+            marginBottom: '0.75rem',
+            flexWrap: 'wrap',
+            gap: '0.5rem'
           }}>
-            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)' }}></span>
-            Hari Ini ({getTodayIndonesian()})
+            <div style={{ 
+              fontSize: '0.8rem', 
+              textTransform: 'uppercase', 
+              letterSpacing: '0.08em', 
+              color: 'var(--text-secondary)', 
+              fontWeight: '700', 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '0.5rem' 
+            }}>
+              <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: 'var(--primary)' }}></span>
+              Hari Ini ({getTodayIndonesian()})
+            </div>
+
+            {user.role === 'officer' && (
+              <button onClick={handleSendWA} className="btn-wa" style={{ margin: 0 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                </svg>
+                Kirim Laporan WA
+              </button>
+            )}
           </div>
           <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <div className="glass-card stat-card">
@@ -1604,29 +1994,31 @@ export default function DashboardPage() {
               Bulan Ini ({getCurrentMonthIndonesian()})
             </div>
 
-            <button
-              onClick={handleDownloadExcelMonth}
-              className="btn btn-secondary"
-              style={{
-                width: 'auto',
-                padding: '0 0.8rem',
-                fontSize: '0.85rem',
-                height: '30px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.35rem',
-                background: 'rgba(59, 130, 246, 0.15)',
-                borderColor: 'rgba(59, 130, 246, 0.3)',
-                color: '#60a5fa',
-                fontWeight: '600',
-                borderRadius: '6px',
-                textTransform: 'none',
-                letterSpacing: 'normal',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              📥 Unduh Data Bulan Ini
-            </button>
+            {user.role === 'coordinator' && (
+              <button
+                onClick={handleDownloadExcelMonth}
+                className="btn btn-secondary"
+                style={{
+                  width: 'auto',
+                  padding: '0 0.8rem',
+                  fontSize: '0.85rem',
+                  height: '30px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  borderColor: 'rgba(59, 130, 246, 0.3)',
+                  color: '#60a5fa',
+                  fontWeight: '600',
+                  borderRadius: '6px',
+                  textTransform: 'none',
+                  letterSpacing: 'normal',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                📥 Unduh Data Bulan Ini
+              </button>
+            )}
           </div>
           <section className="stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <div className="glass-card stat-card">
@@ -1656,7 +2048,37 @@ export default function DashboardPage() {
             <section className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="text-gradient">Tren Aktivitas & Prospek</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="text-gradient">Tren Aktivitas & Prospek</h2>
+                    {user.role === 'coordinator' && user.coordRole === 'master' && (
+                      <select
+                        className="input-control"
+                        value={filterDivisionAct}
+                        onChange={(e) => {
+                          setFilterDivisionAct(e.target.value);
+                          setFilterOfficerAct('');
+                        }}
+                        style={{ height: '26px', padding: '0 2rem 0 0.5rem', fontSize: '0.75rem', width: 'auto', marginRight: '0.5rem' }}
+                      >
+                        <option value="">Semua Divisi</option>
+                        <option value="Operation">Operation</option>
+                        <option value="Sales C2">Sales C2</option>
+                      </select>
+                    )}
+                    <select
+                      className="input-control"
+                      value={filterOfficerAct}
+                      onChange={(e) => setFilterOfficerAct(e.target.value)}
+                      style={{ height: '26px', padding: '0 2rem 0 0.5rem', fontSize: '0.75rem', width: 'auto' }}
+                    >
+                      <option value="">Semua Officer</option>
+                      {officers
+                        .filter((o) => !filterDivisionAct || o.division === filterDivisionAct)
+                        .map((o) => (
+                          <option key={o.id} value={o.id}>{o.name}</option>
+                        ))}
+                    </select>
+                  </div>
                   
                   {/* Metric Toggles */}
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
@@ -1728,9 +2150,10 @@ export default function DashboardPage() {
                     </button>
                   </div>
                 </div>
-                
-                {/* Date Filter Controls */}
-                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  
+                  {/* Date & Officer Filter Controls */}
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+
                    <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none', display: 'inline-flex', height: '30px' }}>
                      <button
                        type="button"
@@ -1787,6 +2210,14 @@ export default function DashboardPage() {
                        />
                      </div>
                    )}
+
+                   <button 
+                     onClick={handleDownloadChart1CSV} 
+                     className="btn btn-secondary" 
+                     style={{ width: 'auto', padding: '0 0.75rem', fontSize: '0.8rem', height: '30px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399', borderRadius: '6px' }}
+                   >
+                     📊 Unduh CSV
+                   </button>
                  </div>
               </div>
               <LineChart 
@@ -1801,7 +2232,37 @@ export default function DashboardPage() {
             <section className="glass-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="text-gradient">Tren Pipeline Aplikasi</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                    <h2 style={{ fontSize: '1.15rem', margin: 0 }} className="text-gradient">Tren Pipeline Aplikasi</h2>
+                    {user.role === 'coordinator' && user.coordRole === 'master' && (
+                      <select
+                        className="input-control"
+                        value={filterDivisionPipe}
+                        onChange={(e) => {
+                          setFilterDivisionPipe(e.target.value);
+                          setFilterOfficerPipe('');
+                        }}
+                        style={{ height: '26px', padding: '0 2rem 0 0.5rem', fontSize: '0.75rem', width: 'auto', marginRight: '0.5rem' }}
+                      >
+                        <option value="">Semua Divisi</option>
+                        <option value="Operation">Operation</option>
+                        <option value="Sales C2">Sales C2</option>
+                      </select>
+                    )}
+                    <select
+                      className="input-control"
+                      value={filterOfficerPipe}
+                      onChange={(e) => setFilterOfficerPipe(e.target.value)}
+                      style={{ height: '26px', padding: '0 2rem 0 0.5rem', fontSize: '0.75rem', width: 'auto' }}
+                    >
+                      <option value="">Semua Officer</option>
+                      {officers
+                        .filter((o) => !filterDivisionPipe || o.division === filterDivisionPipe)
+                        .map((o) => (
+                          <option key={o.id} value={o.id}>{o.name}</option>
+                        ))}
+                    </select>
+                  </div>
                   
                   {/* Metric Toggles */}
                   <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
@@ -1874,7 +2335,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Date Filter Controls */}
+                {/* Date & Officer Filter Controls */}
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                   <div className="tabs-container" style={{ marginBottom: 0, borderBottom: 'none', display: 'inline-flex', height: '30px' }}>
                     <button
@@ -1932,6 +2393,14 @@ export default function DashboardPage() {
                       />
                     </div>
                   )}
+
+                  <button 
+                    onClick={handleDownloadChart2CSV} 
+                    className="btn btn-secondary" 
+                    style={{ width: 'auto', padding: '0 0.75rem', fontSize: '0.8rem', height: '30px', display: 'flex', alignItems: 'center', gap: '0.35rem', background: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.3)', color: '#34d399', borderRadius: '6px' }}
+                  >
+                    📊 Unduh CSV
+                  </button>
                 </div>
               </div>
               <PipelineChart 
@@ -2057,8 +2526,6 @@ export default function DashboardPage() {
               </table>
             </div>
           </section>
-
-
 
           {/* Pipeline Monitor for Coordinator */}
           <section className="glass-card">
@@ -2322,22 +2789,109 @@ export default function DashboardPage() {
               )}
             </div>
           </section>
+
+          {/* Card: Kelola Officer (Daftar & Tambah Officer) */}
+          <section className="glass-card" style={{ marginTop: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+              <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Kelola Akun & Email Officer</h2>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleTestEmail}
+                disabled={testEmailLoading}
+                style={{
+                  width: 'auto',
+                  padding: '0 0.8rem',
+                  fontSize: '0.85rem',
+                  height: '30px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  borderColor: 'rgba(59, 130, 246, 0.3)',
+                  color: '#60a5fa',
+                  borderRadius: '6px'
+                }}
+              >
+                📧 {testEmailLoading ? 'Mengirim...' : 'Uji Kirim Email (Cron)'}
+              </button>
+            </div>
+            
+            {coordError && <div className="alert alert-danger" style={{ marginBottom: '1rem' }}>{coordError}</div>}
+            {coordSuccess && <div className="alert alert-success" style={{ marginBottom: '1rem' }}>{coordSuccess}</div>}
+
+            <div className="responsive-table-container">
+              <table className="data-table" style={{ minWidth: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Nama Officer</th>
+                    <th>Email Officer (Klik untuk Tambah / Edit Email)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {officers.map((o) => (
+                    <tr key={o.id}>
+                      <td><strong>{o.name}</strong></td>
+                      <td>
+                        {editingOfficerId === o.id ? (
+                          <div style={{ display: 'flex', gap: '0.25rem' }}>
+                            <input
+                              type="email"
+                              className="input-control"
+                              value={editingOfficerEmail}
+                              onChange={(e) => setEditingOfficerEmail(e.target.value)}
+                              style={{ height: '26px', padding: '0 0.35rem', fontSize: '0.8rem', width: '220px' }}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ padding: '0 0.5rem', height: '26px', fontSize: '0.75rem', width: 'auto' }}
+                              onClick={() => handleUpdateOfficerEmail(o.id, o.name, editingOfficerEmail)}
+                            >
+                              ✓
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              style={{ padding: '0 0.5rem', height: '26px', fontSize: '0.75rem', color: '#f87171', width: 'auto' }}
+                              onClick={() => setEditingOfficerId(null)}
+                            >
+                              ✗
+                            </button>
+                          </div>
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              setEditingOfficerId(o.id);
+                              setEditingOfficerEmail(o.email || '');
+                            }}
+                            style={{ cursor: 'pointer', color: o.email ? 'var(--primary)' : 'var(--text-secondary)', fontStyle: o.email ? 'normal' : 'italic', textDecoration: 'underline' }}
+                            title="Klik untuk edit email"
+                          >
+                            {o.email || 'Belum ada email (klik di sini untuk menambahkan)'}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {officers.length === 0 && (
+                    <tr>
+                      <td colSpan="3" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
+                        Belum ada officer.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
         </div>
       ) : (
         /* ========================================================================= */
         /*                            OFFICER DASHBOARD                              */
         /* ========================================================================= */
         <>
-          {/* WhatsApp Report Button */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '1rem' }}>
-            <button onClick={handleSendWA} className="btn-wa">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-              </svg>
-              Kirim Laporan WA
-            </button>
-          </div>
-
           <section className="glass-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
               {/* Tab Switcher (Only Prospek, Aplikasi IN, Aplikasi Valid) */}
@@ -2357,7 +2911,30 @@ export default function DashboardPage() {
                 ))}
               </div>
               
-              <div style={{ display: 'flex', gap: '0.75rem', width: '100%', maxWidth: '520px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', width: '100%', maxWidth: '720px', flexWrap: 'wrap', alignItems: 'center' }}>
+                {activeTab === 'Prospek' && prospects.filter(p => p.officer_id === user.id && p.pipeline === 'Prospek').length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginRight: '0.5rem' }}>
+                    {prospects.filter(p => p.officer_id === user.id && p.pipeline === 'Prospek').length > 1 && (
+                      <select
+                        className="input-control"
+                        value={selectedWaProspectId}
+                        onChange={(e) => setSelectedWaProspectId(e.target.value)}
+                        style={{ height: '30px', padding: '0 2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                      >
+                        <option value="">Pilih Customer</option>
+                        {prospects.filter(p => p.officer_id === user.id && p.pipeline === 'Prospek').map((p) => (
+                          <option key={p.id} value={p.id}>{p.nama}</option>
+                        ))}
+                      </select>
+                    )}
+                    <button onClick={handleSendWaProspect} className="btn-wa" style={{ margin: 0, height: '30px' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L0 24l6.335-1.662c1.746.953 3.71 1.458 5.704 1.459h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
+                      </svg>
+                      Kirim WA Prospek
+                    </button>
+                  </div>
+                )}
                 <div style={{ flex: 1, minWidth: '150px' }}>
                   <input
                     type="text"
@@ -2574,9 +3151,36 @@ export default function DashboardPage() {
       {isInputModalOpen && (
         <div className="modal-overlay">
           <div className="glass-card modal-content">
-            <h2 style={{ marginBottom: '1.5rem' }} className="text-gradient">
-              {isEditMode ? 'Edit Data Prospek' : 'Input Data Baru'}
-            </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h2 style={{ margin: 0 }} className="text-gradient">
+                {isEditMode ? 'Edit Data Prospek' : 'Input Data Baru'}
+              </h2>
+              {isEditMode && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handleDeleteProspect}
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    borderColor: 'rgba(239, 68, 68, 0.3)',
+                    color: '#f87171',
+                    padding: '0.5rem',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    width: '42px',
+                    height: '42px',
+                    fontSize: '1.25rem',
+                    transition: 'all 0.2s ease'
+                  }}
+                  title="Hapus Prospek"
+                >
+                  🗑️
+                </button>
+              )}
+            </div>
 
             {/* Tab Switcher in Modal (only in Add Mode) */}
             {!isEditMode && (
@@ -2748,7 +3352,32 @@ export default function DashboardPage() {
       {isLengkapiModalOpen && (
         <div className="modal-overlay">
           <div className="glass-card modal-content">
-            <h2 style={{ marginBottom: '1.5rem' }} className="text-gradient">Lengkapi Data Aplikasi</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h2 style={{ margin: 0 }} className="text-gradient">Lengkapi Data Aplikasi</h2>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleDeleteProspect}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                  color: '#f87171',
+                  padding: '0.5rem',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  width: '42px',
+                  height: '42px',
+                  fontSize: '1.25rem',
+                  transition: 'all 0.2s ease'
+                }}
+                title="Hapus Prospek"
+              >
+                🗑️
+              </button>
+            </div>
             <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
               Customer: <strong>{selectedProspect?.nama}</strong>
             </p>
