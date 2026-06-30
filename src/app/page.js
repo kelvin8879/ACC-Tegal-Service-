@@ -21,7 +21,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     // Check if already logged in
-    const session = localStorage.getItem('acc_session');
+    const session = sessionStorage.getItem('acc_session');
     if (session) {
       router.replace('/dashboard');
     }
@@ -81,7 +81,7 @@ export default function LoginPage() {
         if (error) throw error;
 
         if (data && data.password === password) {
-          localStorage.setItem(
+          sessionStorage.setItem(
             'acc_session',
             JSON.stringify({
               role: 'coordinator',
@@ -122,7 +122,7 @@ export default function LoginPage() {
         if (error) throw error;
 
         if (data && data.pin === pin) {
-          localStorage.setItem(
+          sessionStorage.setItem(
             'acc_session',
             JSON.stringify({
               role: 'officer',

@@ -143,7 +143,7 @@ export default function DashboardPage() {
 
   // Session check
   useEffect(() => {
-    const session = localStorage.getItem('acc_session');
+    const session = sessionStorage.getItem('acc_session');
     if (!session) {
       router.replace('/');
     } else {
@@ -252,9 +252,9 @@ export default function DashboardPage() {
         status = 'Open';
       }
     } else if (pipeline === 'Aplikasi IN') {
-      const validStatuses = ['Belum Melengkapi Data', 'On Progress', 'RE', 'NB', 'OV', 'DP OP'];
+      const validStatuses = ['Belum Melengkapi Data', 'On Progress', 'RE', 'NB', 'OV', 'DP OP', 'Open', 'Close'];
       if (!validStatuses.includes(status)) {
-        status = 'Belum Melengkapi Data';
+        status = 'Open';
       }
     } else if (pipeline === 'Aplikasi Valid') {
       status = 'OV';
@@ -265,6 +265,18 @@ export default function DashboardPage() {
       pipeline,
       status
     };
+  };
+
+  // Helper to check if a prospect belongs to the Operation division
+  const isOperationProspect = (p) => {
+    if (!user) return false;
+    if (user.role === 'officer' && user.division === 'Operation') return true;
+    if (user.role === 'coordinator' && user.coordRole === 'operation') return true;
+    if (p && p.officer_id) {
+      const officer = officers.find(o => o.id === p.officer_id);
+      if (officer && officer.division === 'Operation') return true;
+    }
+    return false;
   };
 
   // Handle write operations with offline fallback
@@ -518,39 +530,11 @@ export default function DashboardPage() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Periodic sync check (every 20 seconds)
-    const syncInterval = setInterval(() => {
-      if (navigator.onLine) {
-        syncOfflineData();
-      }
-    }, 20000);
-
-    if (!user) {
-      return () => {
-        window.removeEventListener('online', handleOnline);
-        window.removeEventListener('offline', handleOffline);
-        clearInterval(syncInterval);
-      };
-    }
-
-    // Subscribe to realtime database changes for prospects and contacting tables
-    const channel = supabase
-      .channel('realtime-prospects')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'prospects' }, () => {
-        loadData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contacting' }, () => {
-        loadData();
-      })
-      .subscribe();
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      clearInterval(syncInterval);
-      supabase.removeChannel(channel);
     };
-  }, [loadData, user, syncOfflineData]);
+  }, [loadData]);
 
   // Check Supabase connection and size
   useEffect(() => {
@@ -587,7 +571,7 @@ export default function DashboardPage() {
 
   // Logout
   const handleLogout = () => {
-    localStorage.removeItem('acc_session');
+    sessionStorage.removeItem('acc_session');
     router.replace('/');
   };
 
@@ -720,7 +704,7 @@ export default function DashboardPage() {
       pipeline: 'Aplikasi IN',
       segment: null, // Set to null instead of '' to satisfy database check constraint
       date_in: todayStr, // Default date
-      status: 'Belum Melengkapi Data', // Default status
+      status: prospect.status || 'Open', // Keep the existing status (e.g. Open/Close)
       no_reg: null, // Set to null instead of '' to satisfy database check constraint
       keterangan: '-', // Set to '-' instead of empty or text as requested
     };
@@ -737,7 +721,7 @@ export default function DashboardPage() {
       segment: prospect.segment || '', // Empty if not set yet
       no_reg: prospect.no_reg || '',
       date_in: prospect.date_in || new Date().toISOString().split('T')[0],
-      status: prospect.status === 'OV' ? 'On Progress' : (prospect.status || 'Belum Melengkapi Data'), // Clean OV if any
+      status: prospect.status === 'OV' ? 'On Progress' : (prospect.status || 'Open'), // Clean OV if any
       keterangan: prospect.keterangan || '',
     });
     setIsLengkapiModalOpen(true);
@@ -746,11 +730,20 @@ export default function DashboardPage() {
   // Submit "Lengkapi/Edit Data" (for IN)
   async function handleLengkapiData(e) {
     e.preventDefault();
-    if (!inForm.segment) {
-      return alert('Segmen harus dipilih.');
-    }
-    if (!inForm.no_reg || inForm.no_reg.length !== 7 || !/^\d+$/.test(inForm.no_reg)) {
-      return alert('No Reg harus berisi 7 digit angka.');
+    
+    const isOperation = isOperationProspect(selectedProspect);
+
+    if (!isOperation) {
+      if (!inForm.segment) {
+        return alert('Segmen harus dipilih.');
+      }
+      if (!inForm.no_reg || inForm.no_reg.length !== 7 || !/^\d+$/.test(inForm.no_reg)) {
+        return alert('No Reg harus berisi 7 digit angka.');
+      }
+    } else {
+      if (inForm.no_reg && (inForm.no_reg.length !== 7 || !/^\d+$/.test(inForm.no_reg))) {
+        return alert('No Reg harus berisi 7 digit angka jika diisi.');
+      }
     }
 
     // Clean description to avoid "dipindahkan" text
@@ -758,8 +751,8 @@ export default function DashboardPage() {
     const cleanKet = (!currentKet || currentKet.toLowerCase().includes('dipindahkan')) ? '-' : currentKet;
 
     const updateFields = {
-      segment: inForm.segment,
-      no_reg: inForm.no_reg,
+      segment: inForm.segment || null,
+      no_reg: inForm.no_reg || null,
       date_in: inForm.date_in,
       status: inForm.status,
       keterangan: cleanKet,
@@ -862,7 +855,14 @@ export default function DashboardPage() {
   const handleTestEmail = async () => {
     setTestEmailLoading(true);
     try {
-      const res = await fetch('/api/reminders');
+      let url = '/api/reminders?test=true';
+      if (filterDivisionManage) {
+        url += `&division=${encodeURIComponent(filterDivisionManage)}`;
+      }
+      if (filterOfficerManage) {
+        url += `&officerId=${encodeURIComponent(filterOfficerManage)}`;
+      }
+      const res = await fetch(url);
       const data = await res.json();
       if (res.ok) {
         alert(`Sukses! ${data.message || ''}\nDetail: ${JSON.stringify(data.sentReminders)}`);
@@ -1413,9 +1413,12 @@ export default function DashboardPage() {
 
     const prospect = filteredList.find(p => p.id === selectedWaProspectId) || filteredList[0];
     const prospectDate = formatDdMmYyyy(prospect.created_at) || formatDdMmYyyy(new Date());
-    const officerName = officers.find(o => o.id === prospect.officer_id)?.name || user.name;
+    
+    const assignedOfficer = officers.find(o => o.id === prospect.officer_id);
+    const officerName = assignedOfficer?.name || user.name;
+    const divisionName = (assignedOfficer?.division || user.division || 'OPERATION').toUpperCase();
 
-    const text = `*PROSPECT ORDER OPERATION ${prospectDate}*
+    const text = `*PROSPECT ORDER ${divisionName} ${prospectDate}*
 PENGAJUAN : ${prospect.pengajuan || ''}
 NAMA : ${prospect.nama || ''}
 REFERRAL : ${officerName || ''}
@@ -1619,48 +1622,37 @@ Alamat : ${prospect.alamat || '-'}
     document.body.removeChild(link);
   };
 
-  // Critical: Delete All Data in Supabase (Prospects, Contacting, Officers) and LocalStorage
+  // Critical: Delete All Data in Supabase (Prospects and Contacting only) and LocalStorage
   const handleDeleteAllData = async () => {
     if (user?.role !== 'coordinator' || user?.coordRole !== 'master') {
       alert("Hanya Master Coordinator yang dapat menghapus seluruh data.");
       return;
     }
-    const firstConfirm = window.confirm("⚠️ PERINGATAN KRITIS: Apakah Anda yakin ingin menghapus SELURUH data di aplikasi ini? Tindakan ini akan menghapus semua nasabah, data aktivitas, dan semua akun officer.");
+    const firstConfirm = window.confirm("⚠️ PERINGATAN: Apakah Anda yakin ingin menghapus seluruh data Prospek dan Aktivitas di aplikasi ini? Akun Officer dan Koordinator TIDAK akan dihapus.");
     if (!firstConfirm) return;
 
-    const secondConfirm = window.confirm("❗ KONFIRMASI KEDUA: Semua data di database Supabase dan penyimpanan lokal (LocalStorage) akan DIHAPUS BERSIH secara permanen. Anda harus mendaftarkan officer kembali jika ingin memulai baru. Lanjutkan?");
+    const secondConfirm = window.confirm("❗ KONFIRMASI KEDUA: Semua data prospek dan aktivitas di database Supabase dan penyimpanan lokal (LocalStorage) akan DIHAPUS BERSIH secara permanen. Lanjutkan?");
     if (!secondConfirm) return;
 
     try {
       // 1. Delete all prospects
-      const { error: error1 } = await supabase
+      await supabase
         .from('prospects')
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000');
 
       // 2. Delete all contacting logs
-      const { error: error2 } = await supabase
+      await supabase
         .from('contacting')
         .delete()
         .neq('id', '00000000-0000-0000-0000-000000000000');
 
-      // 3. Delete all officers
-      const { error: error3 } = await supabase
-        .from('officers')
-        .delete()
-        .neq('id', '00000000-0000-0000-0000-000000000000');
+      // 3. Clear localStorage fallback data
+      localStorage.removeItem('acc_prospects_cache');
+      localStorage.removeItem('acc_contacting_cache');
 
-      // 4. Clear localStorage fallback data
-      localStorage.removeItem('acc_prospects');
-      localStorage.removeItem('acc_officers');
-      localStorage.removeItem('acc_contacting');
-
-      if (error1 || error2 || error3) {
-        throw new Error(error1?.message || error2?.message || error3?.message);
-      }
-
-      alert("🎉 Seluruh database Supabase dan LocalStorage telah dibersihkan total!");
-      window.location.reload();
+      alert("🎉 Seluruh data Prospek dan Aktivitas telah dibersihkan total! Akun Officer tetap aman.");
+      await loadData();
     } catch (err) {
       console.error("Gagal menghapus data:", err);
       alert(`Gagal menghapus data: ${err.message}`);
@@ -1783,6 +1775,9 @@ Alamat : ${prospect.alamat || '-'}
               + Input Data Baru
             </button>
           )}
+          <button className="btn btn-secondary" onClick={async () => { await loadData(); syncOfflineData(); }} style={{ width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }} title="Sinkronisasi & Segarkan Data">
+            🔄 Segarkan
+          </button>
           <button className="btn btn-secondary" onClick={handleLogout} style={{ width: 'auto' }}>
             Keluar
           </button>
@@ -3012,7 +3007,7 @@ Alamat : ${prospect.alamat || '-'}
                   )}
                   <tbody>
                     {displayedProspects.map((p) => {
-                      const hasCompletedData = p.no_reg && p.segment;
+                      const hasCompletedData = isOperationProspect(p) || (p.no_reg && p.segment);
                       return (
                         <tr key={p.id}>
                           {activeTab === 'Prospek' ? (
@@ -3376,7 +3371,6 @@ Alamat : ${prospect.alamat || '-'}
                   type="text"
                   maxLength={7}
                   className="input-control"
-                  required
                   placeholder="Contoh: 1234567"
                   value={inForm.no_reg}
                   onChange={(e) => setInForm({ ...inForm, no_reg: e.target.value.replace(/\D/g, '') })}
