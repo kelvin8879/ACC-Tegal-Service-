@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS officers (
     name TEXT NOT NULL UNIQUE,
     pin TEXT NOT NULL, -- 4 digit PIN or Password
     email TEXT, -- Added for email reminders
-    division TEXT DEFAULT 'Sales C2', -- Added for division filter (Operation / Sales C2)
+    division TEXT DEFAULT 'Operation', -- Added for division filter (Operation / PE / Cabang)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -34,11 +34,19 @@ ALTER TABLE officers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE prospects ENABLE ROW LEVEL SECURITY;
 
 -- Public read/write policies for MVP simplicity
+DROP POLICY IF EXISTS "Allow public read access on officers" ON officers;
+DROP POLICY IF EXISTS "Allow public insert access on officers" ON officers;
+DROP POLICY IF EXISTS "Allow public update access on officers" ON officers;
+DROP POLICY IF EXISTS "Allow public delete access on officers" ON officers;
 CREATE POLICY "Allow public read access on officers" ON officers FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on officers" ON officers FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on officers" ON officers FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete access on officers" ON officers FOR DELETE USING (true);
 
+DROP POLICY IF EXISTS "Allow public read access on prospects" ON prospects;
+DROP POLICY IF EXISTS "Allow public insert access on prospects" ON prospects;
+DROP POLICY IF EXISTS "Allow public update access on prospects" ON prospects;
+DROP POLICY IF EXISTS "Allow public delete access on prospects" ON prospects;
 CREATE POLICY "Allow public read access on prospects" ON prospects FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on prospects" ON prospects FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on prospects" ON prospects FOR UPDATE USING (true);
@@ -69,21 +77,31 @@ END;
 $$;
 
 -- Seed Initial Officers
-INSERT INTO officers (name, pin, division) VALUES 
-('Budi Pratama', '1234', 'Sales C2'),
-('Siti Aminah', '5678', 'Sales C2'),
-('Andi Wijaya', '1111', 'Sales C2'),
-('Mayfanny', 'May123', 'Operation'),
-('Livia', 'Livi123', 'Operation'),
-('Dian', 'Dian123', 'Operation'),
-('Dani', 'Dani123', 'Operation'),
-('Agung', 'Agung123', 'Operation'),
-('Vivi', 'Vivi123', 'Operation'),
-('Kiki', 'Kiki123', 'Operation'),
-('Husni', 'Husni123', 'Operation'),
-('Banu', 'Banu123', 'Operation'),
-('Dwi', 'Dwi123', 'Operation')
-ON CONFLICT (name) DO UPDATE SET pin = EXCLUDED.pin, division = EXCLUDED.division;
+INSERT INTO officers (name, pin, email, division) VALUES 
+('Mayfanny', 'May123', NULL, 'Operation'),
+('Livia', 'Livi123', NULL, 'Operation'),
+('Dian', 'Dian123', NULL, 'Operation'),
+('Dani', 'Dani123', NULL, 'Operation'),
+('Agung', 'Agung123', NULL, 'Operation'),
+('Vivi', 'Vivi123', NULL, 'Operation'),
+('Kiki', 'Kiki123', NULL, 'Operation'),
+('Husni', 'Husni123', NULL, 'Operation'),
+('Banu', 'Banu123', NULL, 'Operation'),
+('Dwi', 'Dwi123', NULL, 'Operation'),
+-- PE Team
+('Zakia', 'zakia123', 'zakiatuisma@gmail.com', 'PE'),
+('Arsy', 'Arsy5758', 'arsyariadeni30@gmail.com', 'PE'),
+('Dyah', 'Dyah987', 'dyahayu1533@gmail.com', 'PE'),
+('Syahrul', 'Syahrul1928', 'syahrulkhasani3@gmail.com', 'PE'),
+('Asep', 'Asep0801', 'asepfathur6@gmail.com', 'PE'),
+-- Cabang Team
+('Oby', 'Tanyasales2026', 'obytrikhakim@gmail.com', 'Cabang'),
+('Deni', 'KECILSEMUA', 'rsydden@gmail.com', 'Cabang'),
+('Daffa', 'Arabkesasar20', 'dfffdllh20@gmail.com', 'Cabang'),
+('Candra', 'Indonesiaemas26', 'candradiwijaya05@gmail.com', 'Cabang'),
+('Jildan', 'Atursendiri69', 'jildanra@gmail.com', 'Cabang'),
+('Doni', 'Doniramdhani18@', 'doniramdhani1831@gmail.com', 'Cabang')
+ON CONFLICT (name) DO UPDATE SET pin = EXCLUDED.pin, email = EXCLUDED.email, division = EXCLUDED.division;
 
 -- Create Contacting Table
 CREATE TABLE IF NOT EXISTS contacting (
@@ -98,6 +116,10 @@ CREATE TABLE IF NOT EXISTS contacting (
 ALTER TABLE contacting ENABLE ROW LEVEL SECURITY;
 
 -- Public read/write policies for MVP simplicity
+DROP POLICY IF EXISTS "Allow public read access on contacting" ON contacting;
+DROP POLICY IF EXISTS "Allow public insert access on contacting" ON contacting;
+DROP POLICY IF EXISTS "Allow public update access on contacting" ON contacting;
+DROP POLICY IF EXISTS "Allow public delete access on contacting" ON contacting;
 CREATE POLICY "Allow public read access on contacting" ON contacting FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on contacting" ON contacting FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on contacting" ON contacting FOR UPDATE USING (true);
@@ -108,7 +130,7 @@ CREATE TABLE IF NOT EXISTS coordinators (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('master', 'operation', 'sales_c2')),
+    role TEXT NOT NULL CHECK (role IN ('master', 'operation', 'pe', 'cabang')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -116,6 +138,10 @@ CREATE TABLE IF NOT EXISTS coordinators (
 ALTER TABLE coordinators ENABLE ROW LEVEL SECURITY;
 
 -- Public read/write policies for MVP simplicity
+DROP POLICY IF EXISTS "Allow public read access on coordinators" ON coordinators;
+DROP POLICY IF EXISTS "Allow public insert access on coordinators" ON coordinators;
+DROP POLICY IF EXISTS "Allow public update access on coordinators" ON coordinators;
+DROP POLICY IF EXISTS "Allow public delete access on coordinators" ON coordinators;
 CREATE POLICY "Allow public read access on coordinators" ON coordinators FOR SELECT USING (true);
 CREATE POLICY "Allow public insert access on coordinators" ON coordinators FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public update access on coordinators" ON coordinators FOR UPDATE USING (true);
@@ -123,8 +149,9 @@ CREATE POLICY "Allow public delete access on coordinators" ON coordinators FOR D
 
 -- Seed Initial Coordinators
 INSERT INTO coordinators (email, password, role) VALUES
-('admin@acc.co.id', 'admin123', 'master'),
-('op@acc.co.id', 'op123', 'operation'),
-('sales@acc.co.id', 'sales123', 'sales_c2')
+('mgutegal@gmail.com', 'MGU100', 'master'),
+('adilasesilia@gmail.com', 'Adila123', 'operation'),
+('milleniatercia@gmail.com', 'Makassar88', 'pe'),
+('yosiyanandas@gmail.com', 'Lautanbiru21', 'cabang')
 ON CONFLICT (email) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role;
 

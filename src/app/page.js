@@ -18,24 +18,6 @@ export default function LoginPage() {
   
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isMockMode, setIsMockMode] = useState(false);
-
-  // Default mock data in case Supabase is not connected
-  const mockOfficers = [
-    { id: 'mock-op-1', name: 'Mayfanny', pin: 'May123', division: 'Operation' },
-    { id: 'mock-op-2', name: 'Livia', pin: 'Livi123', division: 'Operation' },
-    { id: 'mock-op-3', name: 'Dian', pin: 'Dian123', division: 'Operation' },
-    { id: 'mock-op-4', name: 'Dani', pin: 'Dani123', division: 'Operation' },
-    { id: 'mock-op-5', name: 'Agung', pin: 'Agung123', division: 'Operation' },
-    { id: 'mock-op-6', name: 'Vivi', pin: 'Vivi123', division: 'Operation' },
-    { id: 'mock-op-7', name: 'Kiki', pin: 'Kiki123', division: 'Operation' },
-    { id: 'mock-op-8', name: 'Husni', pin: 'Husni123', division: 'Operation' },
-    { id: 'mock-op-9', name: 'Banu', pin: 'Banu123', division: 'Operation' },
-    { id: 'mock-op-10', name: 'Dwi', pin: 'Dwi123', division: 'Operation' },
-    { id: 'mock-1', name: 'Budi Pratama', pin: '1234', division: 'Sales C2' },
-    { id: 'mock-2', name: 'Siti Aminah', pin: '5678', division: 'Sales C2' },
-    { id: 'mock-3', name: 'Andi Wijaya', pin: '1111', division: 'Sales C2' },
-  ];
 
   useEffect(() => {
     // Check if already logged in
@@ -59,25 +41,20 @@ export default function LoginPage() {
       if (data && data.length > 0) {
         const formatted = data.map(o => ({
           ...o,
-          division: o.division || 'Sales C2'
+          division: o.division || 'Operation'
         }));
         setOfficers(formatted);
         const firstOp = formatted.find(o => o.division === 'Operation') || formatted[0];
         setSelectedOfficerId(firstOp.id);
-        setIsMockMode(false);
       } else {
-        // No officers in DB, use mock
-        setOfficers(mockOfficers);
-        const firstOp = mockOfficers.find(o => o.division === 'Operation') || mockOfficers[0];
-        setSelectedOfficerId(firstOp.id);
-        setIsMockMode(true);
+        setOfficers([]);
+        setSelectedOfficerId('');
       }
     } catch (err) {
-      console.warn('Failed to fetch officers from Supabase, entering Mock Mode:', err.message);
-      setOfficers(mockOfficers);
-      const firstOp = mockOfficers.find(o => o.division === 'Operation') || mockOfficers[0];
-      setSelectedOfficerId(firstOp.id);
-      setIsMockMode(true);
+      console.error('Failed to fetch officers from Supabase:', err.message);
+      setError('Gagal menghubungkan ke database Supabase. Silakan periksa koneksi Anda.');
+      setOfficers([]);
+      setSelectedOfficerId('');
     }
   }
 
@@ -94,74 +71,32 @@ export default function LoginPage() {
         return;
       }
 
-      const mockCoordinators = [
-        { email: 'admin@acc.co.id', password: 'admin123', role: 'master' },
-        { email: 'op@acc.co.id', password: 'op123', role: 'operation' },
-        { email: 'sales@acc.co.id', password: 'sales123', role: 'sales_c2' },
-      ];
+      try {
+        const { data, error } = await supabase
+          .from('coordinators')
+          .select('*')
+          .eq('email', email.toLowerCase())
+          .single();
 
-      if (isMockMode) {
-        const matched = mockCoordinators.find(
-          c => c.email.toLowerCase() === email.toLowerCase() && c.password === password
-        );
-        if (matched) {
+        if (error) throw error;
+
+        if (data && data.password === password) {
           localStorage.setItem(
             'acc_session',
             JSON.stringify({
               role: 'coordinator',
-              coordRole: matched.role,
-              name: 'Coordinator ' + (matched.role === 'master' ? 'Master' : matched.role === 'operation' ? 'Operation' : 'Sales C2'),
-              isMock: true,
+              coordRole: data.role,
+              name: 'Coordinator ' + (data.role === 'master' ? 'Master' : data.role === 'operation' ? 'Operation' : data.role === 'pe' ? 'PE' : data.role === 'cabang' ? 'Cabang' : data.role),
+              isMock: false,
             })
           );
           router.replace('/dashboard');
         } else {
           setError('Email atau password Coordinator salah.');
         }
-      } else {
-        try {
-          const { data, error } = await supabase
-            .from('coordinators')
-            .select('*')
-            .eq('email', email.toLowerCase())
-            .single();
-
-          if (error) throw error;
-
-          if (data && data.password === password) {
-            localStorage.setItem(
-              'acc_session',
-              JSON.stringify({
-                role: 'coordinator',
-                coordRole: data.role,
-                name: 'Coordinator ' + (data.role === 'master' ? 'Master' : data.role === 'operation' ? 'Operation' : 'Sales C2'),
-                isMock: false,
-              })
-            );
-            router.replace('/dashboard');
-          } else {
-            setError('Email atau password Coordinator salah.');
-          }
-        } catch (err) {
-          console.warn('Supabase coordinator login failed, falling back to local credentials:', err.message);
-          const matched = mockCoordinators.find(
-            c => c.email.toLowerCase() === email.toLowerCase() && c.password === password
-          );
-          if (matched) {
-            localStorage.setItem(
-              'acc_session',
-              JSON.stringify({
-                role: 'coordinator',
-                coordRole: matched.role,
-                name: 'Coordinator ' + (matched.role === 'master' ? 'Master' : matched.role === 'operation' ? 'Operation' : 'Sales C2'),
-                isMock: false, // Allow proceeding in DB mode
-              })
-            );
-            router.replace('/dashboard');
-          } else {
-            setError('Email atau password Coordinator salah.');
-          }
-        }
+      } catch (err) {
+        console.error('Coordinator login error:', err.message);
+        setError('Email atau password Coordinator salah / Gagal menghubungi server.');
       }
     } else {
       // Officer Login via Dropdown + PIN
@@ -177,53 +112,33 @@ export default function LoginPage() {
         return;
       }
 
-      if (isMockMode) {
-        const matchedMock = mockOfficers.find(
-          (o) => o.id === selectedOfficerId && o.pin === pin
-        );
-        if (matchedMock) {
+      try {
+        const { data, error } = await supabase
+          .from('officers')
+          .select('id, name, pin, division')
+          .eq('id', selectedOfficerId)
+          .single();
+
+        if (error) throw error;
+
+        if (data && data.pin === pin) {
           localStorage.setItem(
             'acc_session',
             JSON.stringify({
               role: 'officer',
-              id: matchedMock.id,
-              name: matchedMock.name,
-              division: matchedMock.division || 'Sales C2',
-              isMock: true,
+              id: data.id,
+              name: data.name,
+              division: data.division || 'Operation',
+              isMock: false,
             })
           );
           router.replace('/dashboard');
         } else {
           setError('Password / PIN Officer salah.');
         }
-      } else {
-        try {
-          const { data, error } = await supabase
-            .from('officers')
-            .select('id, name, pin, division')
-            .eq('id', selectedOfficerId)
-            .single();
-
-          if (error) throw error;
-
-          if (data && data.pin === pin) {
-            localStorage.setItem(
-              'acc_session',
-              JSON.stringify({
-                role: 'officer',
-                id: data.id,
-                name: data.name,
-                division: data.division || 'Sales C2',
-                isMock: false,
-              })
-            );
-            router.replace('/dashboard');
-          } else {
-            setError('PIN Officer salah.');
-          }
-        } catch (err) {
-          setError('Gagal melakukan login: ' + err.message);
-        }
+      } catch (err) {
+        console.error('Officer login error:', err.message);
+        setError('Gagal melakukan login: ' + err.message);
       }
     }
     setLoading(false);
@@ -240,25 +155,6 @@ export default function LoginPage() {
             Pipeline Tracking & Management System
           </p>
         </div>
-
-        {isMockMode && (
-          <div
-            style={{
-              background: 'rgba(59, 130, 246, 0.1)',
-              border: '1px solid rgba(59, 130, 246, 0.2)',
-              borderRadius: '0.5rem',
-              padding: '0.75rem',
-              marginBottom: '1.5rem',
-              fontSize: '0.85rem',
-              color: '#93c5fd',
-              textAlign: 'center',
-            }}
-          >
-            <strong>Mode Demo Aktif:</strong> Database Supabase belum terkoneksi.<br />
-            • Operation Passwords: Mayfanny=May123, Livia=Livi123, Dian=Dian123, dll.<br />
-            • Coord: admin@acc.co.id / admin123
-          </div>
-        )}
 
         {error && (
           <div
@@ -325,7 +221,8 @@ export default function LoginPage() {
                   }}
                 >
                   <option value="Operation">Operation</option>
-                  <option value="Sales C2">Sales C2</option>
+                  <option value="PE">PE</option>
+                  <option value="Cabang">Cabang</option>
                 </select>
               </div>
 

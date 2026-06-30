@@ -56,6 +56,10 @@ export default function DashboardPage() {
   const [filterOfficerPipe, setFilterOfficerPipe] = useState('');
   const [filterDivisionAct, setFilterDivisionAct] = useState('');
   const [filterDivisionPipe, setFilterDivisionPipe] = useState('');
+  const [filterDivisionPerf, setFilterDivisionPerf] = useState('');
+  const [filterDivisionMon, setFilterDivisionMon] = useState('');
+  const [filterDivisionManage, setFilterDivisionManage] = useState('');
+  const [filterOfficerManage, setFilterOfficerManage] = useState('');
   const [selectedWaProspectId, setSelectedWaProspectId] = useState('');
   const [isOffline, setIsOffline] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -241,7 +245,7 @@ export default function DashboardPage() {
     const isOnlineNow = navigator.onLine;
     let success = false;
 
-    if (isOnlineNow && !user.isMock) {
+    if (isOnlineNow) {
       try {
         let error;
         if (action === 'insert') {
@@ -266,7 +270,7 @@ export default function DashboardPage() {
       }
     }
 
-    if (!success && !user.isMock) {
+    if (!success) {
       const queue = JSON.parse(localStorage.getItem('acc_sync_queue') || '[]');
       queue.push({
         id: 'sync-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
@@ -308,240 +312,127 @@ export default function DashboardPage() {
     let rawOfficers = [];
     let rawContacting = [];
 
-    if (user.isMock) {
-      // Load prospects from localStorage (force re-seed if old schema detected)
-      const localProspects = localStorage.getItem('acc_prospects');
-      if (localProspects && JSON.parse(localProspects).some(p => p.officer_id === 'mock-op-1')) {
-        rawProspects = JSON.parse(localProspects);
-      } else {
-        // Seed initial mock prospects representing the 3 stages with different dates
-        const todayStr = new Date().toISOString().split('T')[0];
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        
-        const lastMonth = new Date();
-        lastMonth.setMonth(lastMonth.getMonth() - 1);
-        const lastMonthStr = lastMonth.toISOString().split('T')[0];
+    // Load from Supabase
+    try {
+      // 1. Load Officers
+      let officerQuery = supabase
+        .from('officers')
+        .select('*')
+        .order('name', { ascending: true });
 
-        const seedProspects = [
-          {
-            id: 'p-1',
-            officer_id: 'mock-op-1',
-            pipeline: 'Prospek',
-            pengajuan: 'Top Up',
-            nama: 'Rian Hidayat',
-            alamat: 'Jl. Merdeka No. 12, Tegal',
-            status: 'Open',
-            progress: 'Kunjungan Pertama',
-            call: true,
-            blasting: false,
-            note: 'Butuh follow up minggu depan',
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: 'p-1-old',
-            officer_id: 'mock-op-1',
-            pipeline: 'Prospek',
-            pengajuan: 'Non Top Up',
-            nama: 'Joko Widodo (Kemarin)',
-            alamat: 'Jl. Diponegoro No. 1, Brebes',
-            status: 'Open',
-            progress: 'Kunjungan Pertama',
-            call: true,
-            blasting: true,
-            note: 'Telepon ulang nanti',
-            created_at: yesterday.toISOString(),
-          },
-          {
-            id: 'p-2',
-            officer_id: 'mock-op-2',
-            pipeline: 'Prospek',
-            pengajuan: 'Non Top Up',
-            nama: 'Sarah Wijaya',
-            alamat: 'Jl. Ahmad Yani No. 45, Tegal',
-            status: 'Open',
-            progress: 'Kunjungan Kedua',
-            call: false,
-            blasting: true,
-            note: 'Menunggu respon WA',
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: 'p-3',
-            officer_id: 'mock-op-3',
-            pipeline: 'Aplikasi IN',
-            pengajuan: 'Non Top Up',
-            nama: 'Dewi Lestari',
-            alamat: 'Jl. Mawar No. 5, Brebes',
-            status: 'On Progress',
-            progress: '',
-            call: false,
-            blasting: false,
-            note: 'Berkas lengkap sedang diverifikasi',
-            segment: 'Gold',
-            no_reg: '1234567',
-            date_in: todayStr,
-            keterangan: 'Sedang diverifikasi',
-            created_at: new Date().toISOString(),
-          },
-          {
-            id: 'p-3-old',
-            officer_id: 'mock-1',
-            pipeline: 'Aplikasi IN',
-            pengajuan: 'Top Up',
-            nama: 'Megawati (Bulan Lalu)',
-            alamat: 'Jl. Sukarno No. 2, Pemalang',
-            status: 'RE',
-            progress: '',
-            call: false,
-            blasting: false,
-            note: 'Perbaikan berkas',
-            segment: 'Bronze',
-            no_reg: '1112223',
-            date_in: lastMonthStr,
-            keterangan: 'Menunggu tanda tangan',
-            created_at: lastMonth.toISOString(),
-          },
-          {
-            id: 'p-4',
-            officer_id: 'mock-2',
-            pipeline: 'Aplikasi Valid',
-            pengajuan: 'Top Up',
-            nama: 'Bambang Susilo',
-            alamat: 'Jl. Melati No. 8, Slawi',
-            status: 'OV',
-            progress: '',
-            call: false,
-            blasting: false,
-            note: 'Persetujuan komite beres',
-            segment: 'Platinum',
-            no_reg: '7654321',
-            date_in: todayStr,
-            date_valid: todayStr,
-            keterangan: 'Aplikasi disetujui',
-            created_at: new Date().toISOString(),
-          },
-        ];
-        localStorage.setItem('acc_prospects', JSON.stringify(seedProspects));
-        rawProspects = seedProspects;
-      }
-
-      // Load officers from localStorage (force re-seed if old schema detected)
-      const localOfficers = localStorage.getItem('acc_officers');
-      if (localOfficers && JSON.parse(localOfficers).some(o => o.name === 'Mayfanny')) {
-        rawOfficers = JSON.parse(localOfficers);
-      } else {
-        const seedOfficers = [
-          { id: 'mock-op-1', name: 'Mayfanny', pin: 'May123', division: 'Operation' },
-          { id: 'mock-op-2', name: 'Livia', pin: 'Livi123', division: 'Operation' },
-          { id: 'mock-op-3', name: 'Dian', pin: 'Dian123', division: 'Operation' },
-          { id: 'mock-op-4', name: 'Dani', pin: 'Dani123', division: 'Operation' },
-          { id: 'mock-op-5', name: 'Agung', pin: 'Agung123', division: 'Operation' },
-          { id: 'mock-op-6', name: 'Vivi', pin: 'Vivi123', division: 'Operation' },
-          { id: 'mock-op-7', name: 'Kiki', pin: 'Kiki123', division: 'Operation' },
-          { id: 'mock-op-8', name: 'Husni', pin: 'Husni123', division: 'Operation' },
-          { id: 'mock-op-9', name: 'Banu', pin: 'Banu123', division: 'Operation' },
-          { id: 'mock-op-10', name: 'Dwi', pin: 'Dwi123', division: 'Operation' },
-          { id: 'mock-1', name: 'Budi Pratama', pin: '1234', division: 'Sales C2' },
-          { id: 'mock-2', name: 'Siti Aminah', pin: '5678', division: 'Sales C2' },
-          { id: 'mock-3', name: 'Andi Wijaya', pin: '1111', division: 'Sales C2' },
-        ];
-        localStorage.setItem('acc_officers', JSON.stringify(seedOfficers));
-        rawOfficers = seedOfficers;
-      }
-
-      // Load contacting from localStorage
-      const localContacting = localStorage.getItem('acc_contacting');
-      if (localContacting) {
-        rawContacting = JSON.parse(localContacting);
-      } else {
-        const seedContacting = [
-          {
-            id: 'c-1',
-            officer_id: 'mock-op-1',
-            call_count: 10,
-            blasting_count: 20,
-            created_at: new Date().toISOString(),
-          }
-        ];
-        localStorage.setItem('acc_contacting', JSON.stringify(seedContacting));
-        rawContacting = seedContacting;
-      }
-    } else {
-      // Load from Supabase
-      try {
-        let prospectQuery = supabase.from('prospects').select('*').order('created_at', { ascending: false });
-        
-        // If Officer, only load their own prospects
-        if (user.role === 'officer') {
-          prospectQuery = prospectQuery.eq('officer_id', user.id);
+      if (user.role === 'coordinator' && user.coordRole !== 'master') {
+        const divMap = {
+          operation: 'Operation',
+          pe: 'PE',
+          cabang: 'Cabang'
+        };
+        const division = divMap[user.coordRole];
+        if (division) {
+          officerQuery = officerQuery.eq('division', division);
         }
+      }
 
-        const { data: pData, error: pError } = await prospectQuery;
-        if (pError) throw pError;
-        rawProspects = pData || [];
-        localStorage.setItem('acc_prospects_cache', JSON.stringify(rawProspects));
+      const { data: oData, error: oError } = await officerQuery;
+      if (oError) throw oError;
+      rawOfficers = (oData || []).map(o => ({
+        ...o,
+        division: o.division || 'Operation'
+      }));
+      localStorage.setItem('acc_officers_cache', JSON.stringify(rawOfficers));
 
-        const { data: oData, error: oError } = await supabase
-          .from('officers')
+      const allowedOfficerIds = rawOfficers.map(o => o.id);
+
+      // 2. Load Prospects
+      let pData = [];
+      if (user.role === 'officer') {
+        const { data, error: pError } = await supabase
+          .from('prospects')
           .select('*')
-          .order('name', { ascending: true });
-        if (oError) throw oError;
-        rawOfficers = (oData || []).map(o => ({
-          ...o,
-          division: o.division || 'Sales C2'
-        }));
-        localStorage.setItem('acc_officers_cache', JSON.stringify(rawOfficers));
-
-        // Load contacting from Supabase
-        let cData = [];
-        try {
-          let contactingQuery = supabase.from('contacting').select('*').order('created_at', { ascending: false });
-          if (user.role === 'officer') {
-            contactingQuery = contactingQuery.eq('officer_id', user.id);
-          }
-          const { data, error } = await contactingQuery;
-          if (!error) {
-            cData = data;
-          }
-        } catch (err) {
-          console.warn('Failed to fetch contacting:', err);
+          .eq('officer_id', user.id)
+          .order('created_at', { ascending: false });
+        if (pError) throw pError;
+        pData = data || [];
+      } else if (user.role === 'coordinator' && user.coordRole !== 'master') {
+        if (allowedOfficerIds.length > 0) {
+          const { data, error: pError } = await supabase
+            .from('prospects')
+            .select('*')
+            .in('officer_id', allowedOfficerIds)
+            .order('created_at', { ascending: false });
+          if (pError) throw pError;
+          pData = data || [];
         }
-        rawContacting = cData || [];
-        localStorage.setItem('acc_contacting_cache', JSON.stringify(rawContacting));
-        
-        setIsOffline(false);
-      } catch (err) {
-        console.warn('Offline or network error, loading from local cache:', err.message);
-        setIsOffline(true);
-
-        const cachedProspects = localStorage.getItem('acc_prospects_cache');
-        const cachedOfficers = localStorage.getItem('acc_officers_cache');
-        const cachedContacting = localStorage.getItem('acc_contacting_cache');
-
-        rawProspects = cachedProspects ? JSON.parse(cachedProspects) : [];
-        rawOfficers = cachedOfficers ? JSON.parse(cachedOfficers) : [];
-        rawContacting = cachedContacting ? JSON.parse(cachedContacting) : [];
+      } else {
+        // Master coordinator
+        const { data, error: pError } = await supabase
+          .from('prospects')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (pError) throw pError;
+        pData = data || [];
       }
+      rawProspects = pData;
+      localStorage.setItem('acc_prospects_cache', JSON.stringify(rawProspects));
+
+      // 3. Load Contacting
+      let cData = [];
+      if (user.role === 'officer') {
+        const { data, error: cError } = await supabase
+          .from('contacting')
+          .select('*')
+          .eq('officer_id', user.id)
+          .order('created_at', { ascending: false });
+        if (!cError) cData = data || [];
+      } else if (user.role === 'coordinator' && user.coordRole !== 'master') {
+        if (allowedOfficerIds.length > 0) {
+          const { data, error: cError } = await supabase
+            .from('contacting')
+            .select('*')
+            .in('officer_id', allowedOfficerIds)
+            .order('created_at', { ascending: false });
+          if (!cError) cData = data || [];
+        }
+      } else {
+        // Master coordinator
+        const { data, error: cError } = await supabase
+          .from('contacting')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!cError) cData = data || [];
+      }
+      rawContacting = cData;
+      localStorage.setItem('acc_contacting_cache', JSON.stringify(rawContacting));
+      
+      setIsOffline(false);
+    } catch (err) {
+      console.warn('Offline or network error, loading from local cache:', err.message);
+      setIsOffline(true);
+
+      const cachedProspects = localStorage.getItem('acc_prospects_cache');
+      const cachedOfficers = localStorage.getItem('acc_officers_cache');
+      const cachedContacting = localStorage.getItem('acc_contacting_cache');
+
+      rawProspects = cachedProspects ? JSON.parse(cachedProspects) : [];
+      rawOfficers = cachedOfficers ? JSON.parse(cachedOfficers) : [];
+      rawContacting = cachedContacting ? JSON.parse(cachedContacting) : [];
     }
 
-    // Apply Role-Based Access Control Filters
+    // Apply Role-Based Access Control Filters (Secondary safeguard in frontend)
     let filteredOfficers = rawOfficers;
     let filteredProspects = rawProspects;
     let filteredContacting = rawContacting;
 
-    if (user.role === 'coordinator') {
+    if (user.role === 'coordinator' && user.coordRole !== 'master') {
       if (user.coordRole === 'operation') {
         filteredOfficers = rawOfficers.filter(o => o.division === 'Operation');
-        const opOfficerIds = filteredOfficers.map(o => o.id);
-        filteredProspects = rawProspects.filter(p => opOfficerIds.includes(p.officer_id));
-        filteredContacting = rawContacting.filter(c => opOfficerIds.includes(c.officer_id));
-      } else if (user.coordRole === 'sales_c2') {
-        filteredOfficers = rawOfficers.filter(o => o.division === 'Sales C2');
-        const salesOfficerIds = filteredOfficers.map(o => o.id);
-        filteredProspects = rawProspects.filter(p => salesOfficerIds.includes(p.officer_id));
-        filteredContacting = rawContacting.filter(c => salesOfficerIds.includes(c.officer_id));
+      } else if (user.coordRole === 'pe') {
+        filteredOfficers = rawOfficers.filter(o => o.division === 'PE');
+      } else if (user.coordRole === 'cabang') {
+        filteredOfficers = rawOfficers.filter(o => o.division === 'Cabang');
       }
+      const allowedOfficerIds = filteredOfficers.map(o => o.id);
+      filteredProspects = rawProspects.filter(p => allowedOfficerIds.includes(p.officer_id));
+      filteredContacting = rawContacting.filter(c => allowedOfficerIds.includes(c.officer_id));
     }
 
     setOfficers(filteredOfficers);
@@ -572,7 +463,7 @@ export default function DashboardPage() {
       }
     }, 20000);
 
-    if (!user || user.isMock) {
+    if (!user) {
       return () => {
         window.removeEventListener('online', handleOnline);
         window.removeEventListener('offline', handleOffline);
@@ -602,10 +493,6 @@ export default function DashboardPage() {
   // Check Supabase connection and size
   useEffect(() => {
     if (!user) return;
-    if (user.isMock) {
-      setDbStatus('CONNECTED');
-      return;
-    }
 
     const checkConnection = async () => {
       try {
@@ -643,13 +530,8 @@ export default function DashboardPage() {
   };
 
   // Save/Update helper
-  async function saveProspectsList(updatedList) {
-    if (user.isMock) {
-      localStorage.setItem('acc_prospects', JSON.stringify(updatedList));
-      setProspects(updatedList);
-    } else {
-      await loadData(); // Reload from Supabase
-    }
+  async function saveProspectsList() {
+    await loadData(); // Reload from Supabase
   }
 
   // Open Edit Prospek Modal
@@ -710,23 +592,12 @@ export default function DashboardPage() {
       blasting_count: blastingCount,
     };
 
-    if (user.isMock) {
-      const newItem = {
-        ...newRecord,
-        id: 'c-' + Date.now(),
-        created_at: new Date().toISOString(),
-      };
-      const updated = [newItem, ...contacting];
-      localStorage.setItem('acc_contacting', JSON.stringify(updated));
-      setContacting(updated);
-    } else {
-      try {
-        const { error } = await supabase.from('contacting').insert([newRecord]);
-        if (error) throw error;
-        await loadData(); // Reload from Supabase
-      } catch (err) {
-        alert('Gagal menambah data contacting: ' + err.message);
-      }
+    try {
+      const { error } = await supabase.from('contacting').insert([newRecord]);
+      if (error) throw error;
+      await loadData(); // Reload from Supabase
+    } catch (err) {
+      alert('Gagal menambah data contacting: ' + err.message);
     }
 
     // Reset form and close modal
@@ -754,14 +625,7 @@ export default function DashboardPage() {
         note: cleanNote,
       };
 
-      if (user.isMock) {
-        const updated = prospects.map((p) =>
-          p.id === selectedProspect.id ? { ...p, ...updateFields } : p
-        );
-        await saveProspectsList(updated);
-      } else {
-        await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
-      }
+      await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
     } else {
       // Add Mode: Insert new
       const recordId = generateUUID();
@@ -780,12 +644,7 @@ export default function DashboardPage() {
         created_at: new Date().toISOString(),
       };
 
-      if (user.isMock) {
-        const updated = [newRecord, ...prospects];
-        await saveProspectsList(updated);
-      } else {
-        await executeWrite('insert', 'prospects', newRecord);
-      }
+      await executeWrite('insert', 'prospects', newRecord);
     }
 
     setIsInputModalOpen(false);
@@ -804,14 +663,7 @@ export default function DashboardPage() {
       keterangan: '-', // Set to '-' instead of empty or text as requested
     };
 
-    if (user.isMock) {
-      const updated = prospects.map((p) =>
-        p.id === prospect.id ? { ...p, ...updateFields } : p
-      );
-      await saveProspectsList(updated);
-    } else {
-      await executeWrite('update', 'prospects', updateFields, prospect.id);
-    }
+    await executeWrite('update', 'prospects', updateFields, prospect.id);
     setFilterStatus('');
     setActiveTab('Aplikasi IN');
   }
@@ -851,14 +703,7 @@ export default function DashboardPage() {
       keterangan: cleanKet,
     };
 
-    if (user.isMock) {
-      const updated = prospects.map((p) =>
-        p.id === selectedProspect.id ? { ...p, ...updateFields } : p
-      );
-      await saveProspectsList(updated);
-    } else {
-      await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
-    }
+    await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
 
     setIsLengkapiModalOpen(false);
     setSelectedProspect(null);
@@ -890,14 +735,7 @@ export default function DashboardPage() {
       ...(isTransition ? { pipeline: 'Aplikasi Valid', status: 'OV' } : {})
     };
 
-    if (user.isMock) {
-      const updated = prospects.map((p) =>
-        p.id === selectedProspect.id ? { ...p, ...updateFields } : p
-      );
-      await saveProspectsList(updated);
-    } else {
-      await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
-    }
+    await executeWrite('update', 'prospects', updateFields, selectedProspect.id);
 
     setIsDateValidModalOpen(false);
     setSelectedProspect(null);
@@ -917,57 +755,44 @@ export default function DashboardPage() {
       return setCoordError('PIN harus berisi 4 digit angka.');
     }
 
-    if (user.isMock) {
-      const newOfficer = {
-        id: 'mock-' + Date.now(),
-        name: newOfficerName,
-        pin: newOfficerPin,
-        email: newOfficerEmail || '',
-      };
-      const updatedOfficers = [...officers, newOfficer];
-      localStorage.setItem('acc_officers', JSON.stringify(updatedOfficers));
-      setOfficers(updatedOfficers);
+    try {
+      let division = 'PE';
+      if (user.coordRole === 'operation') {
+        division = 'Operation';
+      } else if (user.coordRole === 'pe') {
+        division = 'PE';
+      } else if (user.coordRole === 'cabang') {
+        division = 'Cabang';
+      } else if (user.coordRole === 'master') {
+        division = 'Operation';
+      }
+      const { error } = await supabase
+        .from('officers')
+        .insert([{ name: newOfficerName, pin: newOfficerPin, email: newOfficerEmail || null, division }]);
+      if (error) throw error;
+
       setCoordSuccess(`Officer ${newOfficerName} berhasil ditambahkan!`);
       setNewOfficerName('');
       setNewOfficerPin('');
       setNewOfficerEmail('');
-    } else {
-      try {
-        const { error } = await supabase
-          .from('officers')
-          .insert([{ name: newOfficerName, pin: newOfficerPin, email: newOfficerEmail || null }]);
-        if (error) throw error;
-
-        setCoordSuccess(`Officer ${newOfficerName} berhasil ditambahkan!`);
-        setNewOfficerName('');
-        setNewOfficerPin('');
-        setNewOfficerEmail('');
-        await loadData();
-      } catch (err) {
-        setCoordError('Gagal menambah officer: ' + err.message);
-      }
+      await loadData();
+    } catch (err) {
+      setCoordError('Gagal menambah officer: ' + err.message);
     }
   }
 
   // Coordinator: Update Officer Email
   async function handleUpdateOfficerEmail(id, name, email) {
-    if (user.isMock) {
-      const updatedOfficers = officers.map(o => o.id === id ? { ...o, email } : o);
-      localStorage.setItem('acc_officers', JSON.stringify(updatedOfficers));
-      setOfficers(updatedOfficers);
+    try {
+      const { error } = await supabase
+        .from('officers')
+        .update({ email: email || null })
+        .eq('id', id);
+      if (error) throw error;
+      await loadData();
       setEditingOfficerId(null);
-    } else {
-      try {
-        const { error } = await supabase
-          .from('officers')
-          .update({ email: email || null })
-          .eq('id', id);
-        if (error) throw error;
-        await loadData();
-        setEditingOfficerId(null);
-      } catch (err) {
-        alert('Gagal memperbarui email officer: ' + err.message);
-      }
+    } catch (err) {
+      alert('Gagal memperbarui email officer: ' + err.message);
     }
   }
 
@@ -992,25 +817,12 @@ export default function DashboardPage() {
   async function handleDeleteOfficer(id, name) {
     if (!confirm(`Apakah Anda yakin ingin menghapus officer ${name}?`)) return;
 
-    if (user.isMock) {
-      const updatedOfficers = officers.filter((o) => o.id !== id);
-      localStorage.setItem('acc_officers', JSON.stringify(updatedOfficers));
-      setOfficers(updatedOfficers);
-
-      // Clean up prospects for deleted officer
-      const updatedProspects = prospects.map((p) =>
-        p.officer_id === id ? { ...p, officer_id: null } : p
-      );
-      localStorage.setItem('acc_prospects', JSON.stringify(updatedProspects));
-      setProspects(updatedProspects);
-    } else {
-      try {
-        const { error } = await supabase.from('officers').delete().eq('id', id);
-        if (error) throw error;
-        await loadData();
-      } catch (err) {
-        alert('Gagal menghapus officer: ' + err.message);
-      }
+    try {
+      const { error } = await supabase.from('officers').delete().eq('id', id);
+      if (error) throw error;
+      await loadData();
+    } catch (err) {
+      alert('Gagal menghapus officer: ' + err.message);
     }
   }
 
@@ -1183,10 +995,14 @@ export default function DashboardPage() {
   const getOfficerPerformance = () => {
     // Determine active date range
     const { startDate, endDate } = getActivePerfDates();
-    const filteredOfficers = filterOfficerPerf
-      ? officers.filter((o) => o.id === filterOfficerPerf)
-      : officers;
-    return filteredOfficers.map((o) => {
+    let filtered = officers;
+    if (filterDivisionPerf) {
+      filtered = filtered.filter((o) => o.division === filterDivisionPerf);
+    }
+    if (filterOfficerPerf) {
+      filtered = filtered.filter((o) => o.id === filterOfficerPerf);
+    }
+    return filtered.map((o) => {
       const oProspects = prospects.filter((p) => p.officer_id === o.id);
       const oContacting = contacting.filter((c) => c.officer_id === o.id);
       
@@ -1232,6 +1048,18 @@ export default function DashboardPage() {
   };
 
   const performance = getOfficerPerformance();
+
+  const getFilteredManageOfficers = () => {
+    let list = officers;
+    if (filterDivisionManage) {
+      list = list.filter((o) => o.division === filterDivisionManage);
+    }
+    if (filterOfficerManage) {
+      list = list.filter((o) => o.id === filterOfficerManage);
+    }
+    return list;
+  };
+  const displayedManageOfficers = getFilteredManageOfficers();
 
   // Compute Daily Trend Chart Data (for Coordinator)
   const getChartData = () => {
@@ -1363,6 +1191,10 @@ export default function DashboardPage() {
       list = list.filter((p) => p.officer_id === user.id);
     } else {
       // Coordinator filters
+      if (filterDivisionMon) {
+        const divOfficers = officers.filter(o => o.division === filterDivisionMon).map(o => o.id);
+        list = list.filter((p) => divOfficers.includes(p.officer_id));
+      }
       if (filterOfficer) {
         list = list.filter((p) => p.officer_id === filterOfficer);
       }
@@ -1540,12 +1372,7 @@ Alamat : ${prospect.alamat || '-'}
     const confirmDelete = window.confirm(`Apakah Anda yakin ingin menghapus prospek "${selectedProspect.nama}" secara permanen dari database?`);
     if (!confirmDelete) return;
 
-    if (user.isMock) {
-      const updated = prospects.filter(p => p.id !== selectedProspect.id);
-      await saveProspectsList(updated);
-    } else {
-      await executeWrite('delete', 'prospects', null, selectedProspect.id);
-    }
+    await executeWrite('delete', 'prospects', null, selectedProspect.id);
     setIsInputModalOpen(false);
     setIsLengkapiModalOpen(false);
     setSelectedProspect(null);
@@ -1732,6 +1559,10 @@ Alamat : ${prospect.alamat || '-'}
 
   // Critical: Delete All Data in Supabase (Prospects, Contacting, Officers) and LocalStorage
   const handleDeleteAllData = async () => {
+    if (user?.role !== 'coordinator' || user?.coordRole !== 'master') {
+      alert("Hanya Master Coordinator yang dapat menghapus seluruh data.");
+      return;
+    }
     const firstConfirm = window.confirm("⚠️ PERINGATAN KRITIS: Apakah Anda yakin ingin menghapus SELURUH data di aplikasi ini? Tindakan ini akan menghapus semua nasabah, data aktivitas, dan semua akun officer.");
     if (!firstConfirm) return;
 
@@ -1830,8 +1661,8 @@ Alamat : ${prospect.alamat || '-'}
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <h1 className="text-gradient" style={{ fontSize: '1.75rem', margin: 0 }}>S.W.A.T - Tegal</h1>
             
-            {/* Delete All Data Button (Visible only to Coordinators) */}
-            {user.role === 'coordinator' && (
+            {/* Delete All Data Button (Visible only to Master Coordinator) */}
+            {user.role === 'coordinator' && user.coordRole === 'master' && (
               <button
                 onClick={handleDeleteAllData}
                 className="btn"
@@ -1869,18 +1700,18 @@ Alamat : ${prospect.alamat || '-'}
                 width: '6px', 
                 height: '6px', 
                 borderRadius: '50%', 
-                backgroundColor: user.isMock ? '#3b82f6' : (dbStatus === 'CONNECTED' ? '#10b981' : dbStatus === 'DISCONNECTED' ? '#ef4444' : '#e2e8f0'),
+                backgroundColor: dbStatus === 'CONNECTED' ? '#10b981' : dbStatus === 'DISCONNECTED' ? '#ef4444' : '#e2e8f0',
                 display: 'inline-block' 
               }} />
               <span style={{ color: 'var(--text-secondary)' }}>
-                {user.isMock ? 'Local Memory Connected' : (dbStatus === 'CONNECTED' ? 'Supabase Connected' : dbStatus === 'DISCONNECTED' ? 'Supabase Offline' : 'Mengecek...')}
+                {dbStatus === 'CONNECTED' ? 'Supabase Connected' : dbStatus === 'DISCONNECTED' ? 'Supabase Offline' : 'Mengecek...'}
               </span>
             </div>
 
             {/* Storage Info */}
             <span style={{ color: 'rgba(255, 255, 255, 0.15)' }} className="desktop-only">|</span>
             <div style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
-              Memori Sisa: {user.isMock ? '499.98 MB' : `${(500 - dbSize.size_mb).toFixed(2)} MB`} / 500 MB
+              Memori Sisa: {`${(1500 - dbSize.size_mb).toFixed(2)} MB`} / 1500 MB
             </div>
           </div>
         </div>
@@ -2062,7 +1893,8 @@ Alamat : ${prospect.alamat || '-'}
                       >
                         <option value="">Semua Divisi</option>
                         <option value="Operation">Operation</option>
-                        <option value="Sales C2">Sales C2</option>
+                        <option value="PE">PE</option>
+                        <option value="Cabang">Cabang</option>
                       </select>
                     )}
                     <select
@@ -2246,7 +2078,8 @@ Alamat : ${prospect.alamat || '-'}
                       >
                         <option value="">Semua Divisi</option>
                         <option value="Operation">Operation</option>
-                        <option value="Sales C2">Sales C2</option>
+                        <option value="PE">PE</option>
+                        <option value="Cabang">Cabang</option>
                       </select>
                     )}
                     <select
@@ -2417,6 +2250,23 @@ Alamat : ${prospect.alamat || '-'}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                 <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Performa Officer</h2>
+                {/* Division Filter Dropdown (Visible only to Master) */}
+                {user.role === 'coordinator' && user.coordRole === 'master' && (
+                  <select
+                    className="input-control"
+                    value={filterDivisionPerf}
+                    onChange={(e) => {
+                      setFilterDivisionPerf(e.target.value);
+                      setFilterOfficerPerf('');
+                    }}
+                    style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                  >
+                    <option value="">Semua Divisi</option>
+                    <option value="Operation">Operation</option>
+                    <option value="PE">PE</option>
+                    <option value="Cabang">Cabang</option>
+                  </select>
+                )}
                 {/* Officer Filter Dropdown */}
                 <select
                   className="input-control"
@@ -2425,9 +2275,11 @@ Alamat : ${prospect.alamat || '-'}
                   style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
                 >
                   <option value="">Semua Officer</option>
-                  {officers.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
+                  {officers
+                    .filter((o) => !filterDivisionPerf || o.division === filterDivisionPerf)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
                 </select>
               </div>
 
@@ -2530,8 +2382,26 @@ Alamat : ${prospect.alamat || '-'}
           {/* Pipeline Monitor for Coordinator */}
           <section className="glass-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                 <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Monitoring Aplikasi</h2>
+                
+                {/* Division Filter Dropdown (Visible only to Master) */}
+                {user.role === 'coordinator' && user.coordRole === 'master' && (
+                  <select
+                    className="input-control"
+                    value={filterDivisionMon}
+                    onChange={(e) => {
+                      setFilterDivisionMon(e.target.value);
+                      setFilterOfficer('');
+                    }}
+                    style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                  >
+                    <option value="">Semua Divisi</option>
+                    <option value="Operation">Operation</option>
+                    <option value="PE">PE</option>
+                    <option value="Cabang">Cabang</option>
+                  </select>
+                )}
                 
                 {/* Officer Filter Dropdown */}
                 <select
@@ -2541,9 +2411,11 @@ Alamat : ${prospect.alamat || '-'}
                   style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
                 >
                   <option value="">Semua Officer</option>
-                  {officers.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
+                  {officers
+                    .filter((o) => !filterDivisionMon || o.division === filterDivisionMon)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
                 </select>
 
                 {/* Tahapan Filter Dropdown (Prospek / Aplikasi IN / Aplikasi Valid) */}
@@ -2793,7 +2665,43 @@ Alamat : ${prospect.alamat || '-'}
           {/* Card: Kelola Officer (Daftar & Tambah Officer) */}
           <section className="glass-card" style={{ marginTop: '2rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-              <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Kelola Akun & Email Officer</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                <h2 style={{ fontSize: '1.25rem', margin: 0 }} className="text-gradient">Kelola Akun & Email Officer</h2>
+                
+                {/* Division Filter Dropdown (Visible only to Master) */}
+                {user.role === 'coordinator' && user.coordRole === 'master' && (
+                  <select
+                    className="input-control"
+                    value={filterDivisionManage}
+                    onChange={(e) => {
+                      setFilterDivisionManage(e.target.value);
+                      setFilterOfficerManage('');
+                    }}
+                    style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                  >
+                    <option value="">Semua Divisi</option>
+                    <option value="Operation">Operation</option>
+                    <option value="PE">PE</option>
+                    <option value="Cabang">Cabang</option>
+                  </select>
+                )}
+                
+                {/* Officer Filter Dropdown */}
+                <select
+                  className="input-control"
+                  value={filterOfficerManage}
+                  onChange={(e) => setFilterOfficerManage(e.target.value)}
+                  style={{ height: '30px', padding: '0 2.2rem 0 0.5rem', fontSize: '0.8rem', width: 'auto' }}
+                >
+                  <option value="">Semua Officer</option>
+                  {officers
+                    .filter((o) => !filterDivisionManage || o.division === filterDivisionManage)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                </select>
+              </div>
+              
               <button
                 type="button"
                 className="btn btn-secondary"
@@ -2829,7 +2737,7 @@ Alamat : ${prospect.alamat || '-'}
                   </tr>
                 </thead>
                 <tbody>
-                  {officers.map((o) => (
+                  {displayedManageOfficers.map((o) => (
                     <tr key={o.id}>
                       <td><strong>{o.name}</strong></td>
                       <td>
@@ -2874,7 +2782,7 @@ Alamat : ${prospect.alamat || '-'}
                       </td>
                     </tr>
                   ))}
-                  {officers.length === 0 && (
+                  {displayedManageOfficers.length === 0 && (
                     <tr>
                       <td colSpan="3" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '1rem' }}>
                         Belum ada officer.
