@@ -151,9 +151,6 @@ export default function LoginPage() {
           <h1 className="text-gradient" style={{ fontSize: '2.25rem', marginBottom: '0.5rem' }}>
             S.W.A.T - Tegal
           </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
-            Pipeline Tracking & Management System
-          </p>
         </div>
 
         {error && (
