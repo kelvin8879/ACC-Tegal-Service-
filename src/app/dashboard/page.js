@@ -547,10 +547,10 @@ export default function DashboardPage() {
         setDbStatus('CONNECTED');
 
         const { data: sizeData, error: sizeError } = await supabase.rpc('get_db_size');
-        if (!sizeError && sizeData) {
+        if (!sizeError && sizeData && sizeData.length > 0) {
           setDbSize({
-            size_mb: Number(sizeData.size_mb),
-            is_almost_full: Boolean(sizeData.is_almost_full)
+            size_mb: Number(sizeData[0].size_mb),
+            is_almost_full: Boolean(sizeData[0].is_almost_full)
           });
         } else {
           // Fallback estimate based on number of prospects if RPC is not available
@@ -1762,11 +1762,6 @@ Alamat : ${prospect.alamat || '-'}
               </span>
             </div>
 
-            {/* Storage Info */}
-            <span style={{ color: 'rgba(255, 255, 255, 0.15)' }} className="desktop-only">|</span>
-            <div style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-secondary)' }}>
-              Memori Sisa: {`${(1500 - dbSize.size_mb).toFixed(2)} MB`} / 1500 MB
-            </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
