@@ -552,9 +552,9 @@ tr:hover .row-hover-btn {
     border-radius: 0.75rem;
   }
   .modal-overlay {
-    padding: 0.75rem;
-    align-items: flex-start; /* Dorong form ke atas agar tidak tertutup keyboard */
-    padding-top: 2rem;
+    padding: 0.5rem;
+    align-items: flex-start; /* Dorong form ke atas maksimal agar tidak tertutup keyboard */
+    padding-top: 0.5rem;
   }
   .modal-content {
     max-width: 100%;

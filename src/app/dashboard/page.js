@@ -2937,7 +2937,7 @@ Alamat : ${prospect.alamat || '-'}
 
             <div className="responsive-table-container">
               {activeTab === 'Aplikasi Valid' ? (
-                <table className="data-table" style={{ minWidth: '100%' }}>
+                <table className="data-table">
                   <thead>
                     <tr>
                       <th style={{ width: '15%' }}>Nama Customer</th>
@@ -3367,7 +3367,7 @@ Alamat : ${prospect.alamat || '-'}
                 🗑️
               </button>
             </div>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.25rem' }}>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>
               Customer: <strong>{selectedProspect?.nama}</strong>
             </p>
             <form onSubmit={handleLengkapiData}>
@@ -3442,7 +3442,7 @@ Alamat : ${prospect.alamat || '-'}
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem' }}>
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.75rem' }}>
                 <button type="button" className="btn btn-secondary" onClick={() => setIsLengkapiModalOpen(false)}>
                   Batal
                 </button>
@@ -3459,16 +3459,16 @@ Alamat : ${prospect.alamat || '-'}
       {isDateValidModalOpen && (
         <div className="modal-overlay">
           <div className="glass-card modal-content" style={{ maxWidth: '400px' }}>
-            <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-              <span style={{ fontSize: '3rem' }}>📅</span>
+            <div style={{ textAlign: 'center', marginBottom: '0.25rem' }}>
+              <span style={{ fontSize: '2rem' }}>📅</span>
             </div>
-            <h2 style={{ marginBottom: '0.5rem', textAlign: 'center' }} className="text-gradient">Tanggal Valid</h2>
-            <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '1.5rem', textAlign: 'center' }}>
+            <h2 style={{ marginBottom: '0.25rem', textAlign: 'center', fontSize: '1.25rem' }} className="text-gradient">Tanggal Valid</h2>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '0.75rem', textAlign: 'center' }}>
               Pilih tanggal valid untuk customer:<br /><strong>{selectedProspect?.nama}</strong>
             </p>
             <form onSubmit={handleSaveDateValid}>
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label htmlFor="valid-date" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              <div className="form-group" style={{ marginBottom: '0.75rem' }}>
+                <label htmlFor="valid-date" style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   Klik kolom di bawah untuk membuka kalender:
                 </label>
                 <input
@@ -3482,9 +3482,9 @@ Alamat : ${prospect.alamat || '-'}
                   style={{
                     cursor: 'pointer',
                     textAlign: 'center',
-                    fontSize: '1.1rem',
+                    fontSize: '1rem',
                     letterSpacing: '0.05em',
-                    padding: '0.875rem 1rem',
+                    padding: '0.5rem 0.75rem',
                     border: '1px solid rgba(99, 102, 241, 0.4)',
                     background: 'rgba(99, 102, 241, 0.05)'
                   }}
