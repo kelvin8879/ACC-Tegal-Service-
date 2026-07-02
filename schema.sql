@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS contacting (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
+ALTER TABLE contacting ADD COLUMN contacted_count INTEGER DEFAULT 0 NOT NULL;
+
 -- Enable Row Level Security (RLS)
 ALTER TABLE contacting ENABLE ROW LEVEL SECURITY;
 

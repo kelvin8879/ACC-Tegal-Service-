@@ -141,21 +141,22 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 label {
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: #e2e8f0; /* Brighter Slate-200 for high contrast on phone screens */
+  color: #ffffff; /* Pure white for maximum contrast on phone screens */
   letter-spacing: 0.02em;
 }
 
 .input-control {
   width: 100%;
   padding: 0.8rem 1rem; /* Slightly taller padding for easier finger tapping on mobile */
-  background: #0f172a; /* Solid Slate-900 background to prevent transparency blending */
-  border: 1.5px solid rgba(255, 255, 255, 0.22); /* Thicker, higher-contrast border */
+  background: rgba(15, 23, 42, 0.95); /* Extremely dark slate background for depth */
+  border: 2px solid rgba(255, 255, 255, 0.4); /* Much thicker, higher-contrast border */
   border-radius: 0.5rem;
   color: #ffffff; /* Pure white text for maximum legibility */
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: 16px; /* FIXED 16px: PREVENTS IOS SAFARI FROM AUTO-ZOOMING ON MOBILE */
+  font-weight: 500;
   transition: all 0.2s ease;
 }
 
@@ -167,12 +168,13 @@ label {
 }
 
 .input-control::placeholder {
-  color: #94a3b8; /* Brighter Slate-400 for readable placeholders */
+  color: #cbd5e1; /* Much brighter Slate-300 for highly readable placeholders */
+  opacity: 1; /* Ensure full opacity across browsers */
 }
 
 select.input-control {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23e2e8f0'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2'.5 d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23ffffff'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 1rem center;
   background-size: 1.25rem;
@@ -372,9 +374,9 @@ select.input-control {
   max-height: 90vh;
   overflow-y: auto;
   animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  background: #1e293b !important; /* Solid Slate-800 to prevent background bleed-through on mobile */
-  border: 1.5px solid rgba(255, 255, 255, 0.15) !important; /* Higher contrast border */
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6) !important; /* Stronger shadow for clear depth */
+  background: #0f172a !important; /* Very dark Slate-900 to prevent background bleed-through on mobile */
+  border: 2px solid rgba(255, 255, 255, 0.35) !important; /* Higher contrast border */
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 1) !important; /* Stronger shadow for clear depth */
 }
 
 /* Stats Grid */

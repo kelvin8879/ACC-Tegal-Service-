@@ -2944,19 +2944,16 @@ Alamat : ${prospect.alamat || '-'}
                       <th style={{ width: '12%' }}>Segmen</th>
                       <th style={{ width: '14%' }}>No Reg</th>
                       <th style={{ width: '14%' }}>Date IN</th>
-                      <th style={{ width: '18%' }}>Date Valid</th>
-                      <th style={{ width: '27%' }}>Keterangan</th>
+                      <th style={{ width: '16%' }}>Date Valid</th>
+                      <th style={{ width: '15%' }}>Keterangan</th>
+                      <th style={{ width: '14%', textAlign: 'center' }}>Aksi</th>
                     </tr>
                   </thead>
                   <tbody>
                     {displayedProspects.map((p) => (
                       <tr key={p.id}>
-                        <td style={{ position: 'relative', paddingRight: '50px' }}>
+                        <td>
                           <strong>{p.nama}</strong>
-                          {/* Only open the datepicker modal for valid prospects */}
-                          <button className="row-hover-btn" onClick={() => openDateValid(p)}>
-                            Edit
-                          </button>
                         </td>
                         <td>{p.segment ? <span className="badge badge-info">{p.segment}</span> : '-'}</td>
                         <td><code>{p.no_reg}</code></td>
@@ -2967,6 +2964,15 @@ Alamat : ${prospect.alamat || '-'}
                           </span>
                         </td>
                         <td style={{ fontSize: '0.85rem' }}>{formatKeterangan(p.keterangan)}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            className="btn btn-primary"
+                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', width: 'auto', whiteSpace: 'nowrap' }}
+                            onClick={() => openDateValid(p)}
+                          >
+                            Edit Data
+                          </button>
+                        </td>
                       </tr>
                     ))}
                     {displayedProspects.length === 0 && (
