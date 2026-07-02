@@ -244,6 +244,17 @@ export default function DashboardPage() {
     loadData();
   }, [isSyncing]);
 
+  useEffect(() => {
+    if (isInputModalOpen || isLengkapiModalOpen || isDateValidModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [isInputModalOpen, isLengkapiModalOpen, isDateValidModalOpen]);
+
   // Helper to sanitize prospect status based on its pipeline stage
   const sanitizeProspect = (p) => {
     if (!p) return p;
@@ -2684,22 +2695,22 @@ Alamat : ${prospect.alamat || '-'}
                       const officerName = officers.find((o) => o.id === p.officer_id)?.name || 'Unassigned';
                       return activeTab === 'Prospek' ? (
                         <tr key={p.id}>
-                          <td><strong>{p.nama}</strong></td>
+                          <td style={{ maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><strong>{p.nama}</strong></td>
                           <td><span className="badge badge-info">{p.pengajuan}</span></td>
                           <td>{formatDate(p.created_at)}</td>
-                          <td style={{ fontSize: '0.85rem' }}>{p.alamat}</td>
+                          <td style={{ fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.alamat}</td>
                           <td>
                             <span className={`badge ${p.status === 'Close' ? 'badge-danger' : p.status === 'Flexi' ? 'badge-warning' : 'badge-success'}`}>
                               {p.status || 'Open'}
                             </span>
                           </td>
-                          <td><span style={{ fontSize: '0.85rem' }}>{p.progress || '-'}</span></td>
+                          <td style={{ fontSize: '0.85rem', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.progress || '-'}</td>
                           <td><span style={{ fontSize: '0.85rem' }}>{officerName}</span></td>
-                          <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{formatKeterangan(p.note)}</td>
+                          <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatKeterangan(p.note)}</td>
                         </tr>
                       ) : (
                         <tr key={p.id}>
-                          <td><strong>{p.nama}</strong></td>
+                          <td style={{ maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><strong>{p.nama}</strong></td>
                           <td>{p.segment ? <span className="badge badge-info">{p.segment}</span> : '-'}</td>
                           <td><code>{p.no_reg || '-'}</code></td>
                           <td>{formatDate(p.date_in)}</td>
@@ -2709,7 +2720,7 @@ Alamat : ${prospect.alamat || '-'}
                             </span>
                           </td>
                           <td><span style={{ fontSize: '0.85rem' }}>{officerName}</span></td>
-                          <td style={{ fontSize: '0.85rem' }}>{formatKeterangan(p.keterangan)}</td>
+                          <td style={{ fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatKeterangan(p.keterangan)}</td>
                         </tr>
                       );
                     })}
@@ -3028,7 +3039,7 @@ Alamat : ${prospect.alamat || '-'}
                         <tr key={p.id}>
                           {activeTab === 'Prospek' ? (
                             <>
-                              <td style={{ position: 'relative', paddingRight: '50px' }}>
+                              <td style={{ position: 'relative', paddingRight: '50px', maxWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 <strong>{p.nama}</strong>
                                 <button className="row-hover-btn" onClick={() => openEditProspek(p)}>
                                   Edit
@@ -3044,8 +3055,8 @@ Alamat : ${prospect.alamat || '-'}
                                   {p.status || 'Open'}
                                 </span>
                               </td>
-                              <td>{p.progress || '-'}</td>
-                              <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{formatKeterangan(p.note)}</td>
+                              <td style={{ fontSize: '0.85rem', maxWidth: '120px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.progress || '-'}</td>
+                              <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatKeterangan(p.note)}</td>
                               <td style={{ textAlign: 'center' }}>
                                 <button
                                   className="btn btn-primary"
@@ -3058,7 +3069,7 @@ Alamat : ${prospect.alamat || '-'}
                             </>
                           ) : (
                             <>
-                              <td style={{ position: 'relative', paddingRight: '50px' }}>
+                              <td style={{ position: 'relative', paddingRight: '50px', maxWidth: '180px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 <strong>{p.nama}</strong>
                                 <button className="row-hover-btn" onClick={() => openLengkapiData(p)}>
                                   Edit
@@ -3072,7 +3083,7 @@ Alamat : ${prospect.alamat || '-'}
                                   {p.status}
                                 </span>
                               </td>
-                              <td style={{ fontSize: '0.85rem' }}>{formatKeterangan(p.keterangan)}</td>
+                              <td style={{ fontSize: '0.85rem', maxWidth: '150px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatKeterangan(p.keterangan)}</td>
                               <td style={{ textAlign: 'center' }}>
                                 <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center' }}>
                                   {hasCompletedData ? (
@@ -3125,10 +3136,10 @@ Alamat : ${prospect.alamat || '-'}
               {displayedProspects.map((p) => {
                 const hasCompletedData = isOperationProspect(p) || (p.no_reg && p.segment);
                 return (
-                  <div key={p.id} className="glass-card" style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative' }}>
+                  <div key={p.id} className="glass-card" style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative', overflow: 'hidden' }}>
                     
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.15rem' }}>
-                      <strong style={{ fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '0.5rem' }}>{p.nama}</strong>
+                      <strong style={{ display: 'block', flex: 1, minWidth: 0, fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '0.5rem' }}>{p.nama}</strong>
                       {activeTab === 'Prospek' ? (
                         <button className="btn btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', height: 'auto', width: 'auto', flexShrink: 0 }} onClick={() => openEditProspek(p)}>Edit</button>
                       ) : (
@@ -3138,16 +3149,16 @@ Alamat : ${prospect.alamat || '-'}
 
                     {activeTab === 'Prospek' ? (
                       <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.25rem', fontSize: '0.75rem' }}>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Pengajuan:</span> <span className="badge badge-info" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.pengajuan}</span></div>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Tanggal:</span> {formatDate(p.created_at)}</div>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`badge ${p.status === 'Close' ? 'badge-danger' : p.status === 'Flexi' ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.status || 'Open'}</span></div>
                           <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: 'var(--text-secondary)' }}>Alamat:</span> {p.alamat || '-'}</div>
                         </div>
-                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>Progress:</span> {p.progress || '-'}
                         </div>
-                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>Catatan:</span> {formatKeterangan(p.note)}
                         </div>
                         <div style={{ marginTop: '0.25rem' }}>
@@ -3156,13 +3167,13 @@ Alamat : ${prospect.alamat || '-'}
                       </>
                     ) : activeTab === 'Aplikasi IN' ? (
                       <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.25rem', fontSize: '0.75rem' }}>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Segmen:</span> {p.segment ? <span className="badge badge-info" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.segment}</span> : '-'}</div>
                           <div><span style={{ color: 'var(--text-secondary)' }}>No Reg:</span> <code>{p.no_reg || '-'}</code></div>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Date IN:</span> {formatDate(p.date_in)}</div>
-                          <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`badge ${p.status === 'OV' ? 'badge-success' : p.status === 'Belum Melengkapi Data' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.status}</span></div>
+                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`badge ${p.status === 'OV' ? 'badge-success' : p.status === 'Belum Melengkapi Data' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.status}</span></div>
                         </div>
-                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>Keterangan:</span> {formatKeterangan(p.keterangan)}
                         </div>
                         <div style={{ marginTop: '0.25rem', display: 'flex', gap: '0.5rem' }}>
@@ -3175,13 +3186,13 @@ Alamat : ${prospect.alamat || '-'}
                       </>
                     ) : (
                       <>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.75rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '0.25rem', fontSize: '0.75rem' }}>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Segmen:</span> {p.segment ? <span className="badge badge-info" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.segment}</span> : '-'}</div>
                           <div><span style={{ color: 'var(--text-secondary)' }}>No Reg:</span> <code>{p.no_reg || '-'}</code></div>
                           <div><span style={{ color: 'var(--text-secondary)' }}>Date IN:</span> {formatDate(p.date_in)}</div>
-                          <div><span style={{ color: 'var(--text-secondary)' }}>Date Valid:</span> <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{formatDate(p.date_valid)}</span></div>
+                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: 'var(--text-secondary)' }}>Date Valid:</span> <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{formatDate(p.date_valid)}</span></div>
                         </div>
-                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>Keterangan:</span> {formatKeterangan(p.keterangan)}
                         </div>
                         <div style={{ marginTop: '0.25rem' }}>
