@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS contacting (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     officer_id UUID REFERENCES officers(id) ON DELETE CASCADE,
     call_count INTEGER DEFAULT 0 NOT NULL,
+    contacted_count INTEGER DEFAULT 0 NOT NULL,
     blasting_count INTEGER DEFAULT 0 NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );

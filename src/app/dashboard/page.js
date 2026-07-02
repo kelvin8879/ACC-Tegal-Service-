@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const [contacting, setContacting] = useState([]);
   const [contactingForm, setContactingForm] = useState({
     call: '',
+    contacted: '',
     blasting: '',
   });
 
@@ -79,6 +80,7 @@ export default function DashboardPage() {
 
   // Chart 1 Metric Visibility Toggles
   const [showCallLine, setShowCallLine] = useState(true);
+  const [showContactedLine, setShowContactedLine] = useState(true);
   const [showBlastingLine, setShowBlastingLine] = useState(true);
   const [showProspekLine, setShowProspekLine] = useState(true);
 
@@ -615,6 +617,7 @@ export default function DashboardPage() {
     });
     setContactingForm({
       call: '',
+      contacted: '',
       blasting: '',
     });
     setIsInputModalOpen(true);
@@ -624,18 +627,20 @@ export default function DashboardPage() {
   async function handleAddContacting(e) {
     e.preventDefault();
     const callCount = parseInt(contactingForm.call) || 0;
+    const contactedCount = parseInt(contactingForm.contacted) || 0;
     const blastingCount = parseInt(contactingForm.blasting) || 0;
 
-    if (callCount < 0 || blastingCount < 0) {
+    if (callCount < 0 || contactedCount < 0 || blastingCount < 0) {
       return alert('Angka tidak boleh negatif.');
     }
-    if (callCount === 0 && blastingCount === 0) {
-      return alert('Silakan masukkan jumlah Call atau Blasting.');
+    if (callCount === 0 && contactedCount === 0 && blastingCount === 0) {
+      return alert('Silakan masukkan jumlah Call, Contacted, atau Blasting.');
     }
 
     const newRecord = {
       officer_id: user.role === 'officer' ? user.id : null,
       call_count: callCount,
+      contacted_count: contactedCount,
       blasting_count: blastingCount,
     };
 
@@ -648,7 +653,7 @@ export default function DashboardPage() {
     }
 
     // Reset form and close modal
-    setContactingForm({ call: '', blasting: '' });
+    setContactingForm({ call: '', contacted: '', blasting: '' });
     setIsInputModalOpen(false);
   }
 
@@ -915,6 +920,11 @@ export default function DashboardPage() {
       .filter((c) => isCreatedWithinCurrentBusinessDay(c.created_at))
       .reduce((sum, c) => sum + (Number(c.call_count) || 0), 0);
 
+    // Contacted (Hari Ini): Sum contacted_count from relevantContacting created within current business day
+    const countContacted = relevantContacting
+      .filter((c) => isCreatedWithinCurrentBusinessDay(c.created_at))
+      .reduce((sum, c) => sum + (Number(c.contacted_count) || 0), 0);
+
     // Blasting (Hari Ini): Sum blasting_count from relevantContacting created within current business day
     const countBlasting = relevantContacting
       .filter((c) => isCreatedWithinCurrentBusinessDay(c.created_at))
@@ -957,6 +967,7 @@ export default function DashboardPage() {
 
     return {
       countCall,
+      countContacted,
       countBlasting,
       countProspek,
       countAplikasiInToday,
@@ -1076,6 +1087,13 @@ export default function DashboardPage() {
         })
         .reduce((sum, c) => sum + (Number(c.call_count) || 0), 0);
 
+      const contacted = oContacting
+        .filter((c) => {
+          const bizDate = getBusinessDateString(c.created_at);
+          return isDateWithinRange(bizDate, startDate, endDate);
+        })
+        .reduce((sum, c) => sum + (Number(c.contacted_count) || 0), 0);
+
       const blasting = oContacting
         .filter((c) => {
           const bizDate = getBusinessDateString(c.created_at);
@@ -1102,6 +1120,7 @@ export default function DashboardPage() {
         id: o.id,
         name: o.name,
         call,
+        contacted,
         blasting,
         prospek,
         aplikasiIn,
@@ -1164,6 +1183,10 @@ export default function DashboardPage() {
         .filter((c) => getBusinessDateString(c.created_at) === dateStr)
         .reduce((sum, c) => sum + (Number(c.call_count) || 0), 0);
 
+      const contacted = filteredContacting
+        .filter((c) => getBusinessDateString(c.created_at) === dateStr)
+        .reduce((sum, c) => sum + (Number(c.contacted_count) || 0), 0);
+
       const blasting = filteredContacting
         .filter((c) => getBusinessDateString(c.created_at) === dateStr)
         .reduce((sum, c) => sum + (Number(c.blasting_count) || 0), 0);
@@ -1177,6 +1200,7 @@ export default function DashboardPage() {
         dateStr,
         label,
         call,
+        contacted,
         blasting,
         prospek
       };
@@ -1380,7 +1404,7 @@ export default function DashboardPage() {
 
   // Send daily performance report to WhatsApp
   const handleSendWA = () => {
-    const reportText = `Nama : ${user.name}\nCall : ${stats.countCall}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}\nAplikasi In : ${stats.countAplikasiInToday}\nAplikasi Valid : ${stats.countAplikasiValidToday}`;
+    const reportText = `Nama : ${user.name}\nCall : ${stats.countCall}\nContacted : ${stats.countContacted}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}\nAplikasi In : ${stats.countAplikasiInToday}\nAplikasi Valid : ${stats.countAplikasiValidToday}`;
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(reportText)}`;
     window.open(waUrl, '_blank');
   };
@@ -1446,10 +1470,11 @@ Alamat : ${prospect.alamat || '-'}
 
   // Download Performa Officer as Excel (XLSX)
   const handleDownloadExcelPerformance = () => {
-    const headers = ['Nama Officer', 'Call', 'Blasting', 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'];
+    const headers = ['Nama Officer', 'Call', 'Contacted', 'Blasting', 'Prospek', 'Aplikasi IN', 'Aplikasi Valid'];
     const rows = performance.map(perf => [
       perf.name,
       perf.call,
+      perf.contacted,
       perf.blasting,
       perf.prospek,
       perf.aplikasiIn,
@@ -1634,8 +1659,8 @@ Alamat : ${prospect.alamat || '-'}
   // Download Chart 1 (Tren Aktivitas & Prospek) data as Excel
   const handleDownloadChart1Excel = () => {
     const data = getChartData();
-    const headers = ['Tanggal', 'Call', 'Blasting', 'Prospek'];
-    const excelRows = data.map(d => [formatDate(d.dateStr), d.call, d.blasting, d.prospek]);
+    const headers = ['Tanggal', 'Call', 'Contacted', 'Blasting', 'Prospek'];
+    const excelRows = data.map(d => [formatDate(d.dateStr), d.call, d.contacted, d.blasting, d.prospek]);
 
     const worksheet = XLSX.utils.aoa_to_sheet([headers, ...excelRows]);
     const workbook = XLSX.utils.book_new();
@@ -1801,6 +1826,10 @@ Alamat : ${prospect.alamat || '-'}
               <div className="stat-val" style={{ color: 'var(--warning)' }}>{stats.countCall}</div>
             </div>
             <div className="glass-card stat-card">
+              <label>Contacted</label>
+              <div className="stat-val" style={{ color: '#10b981' }}>{stats.countContacted}</div>
+            </div>
+            <div className="glass-card stat-card">
               <label>Blasting</label>
               <div className="stat-val" style={{ color: 'var(--danger)' }}>{stats.countBlasting}</div>
             </div>
@@ -1948,6 +1977,28 @@ Alamat : ${prospect.alamat || '-'}
                     </button>
                     <button
                       type="button"
+                      onClick={() => setShowContactedLine(!showContactedLine)}
+                      style={{
+                        padding: '0.4rem 0.8rem',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        border: '1px solid',
+                        borderColor: showContactedLine ? '#10b981' : 'rgba(255, 255, 255, 0.1)',
+                        background: showContactedLine ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+                        color: showContactedLine ? '#10b981' : 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        transition: 'all 0.2s ease',
+                        fontWeight: '500'
+                      }}
+                    >
+                      <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981' }}></span>
+                      Contacted {showContactedLine ? '✓' : ''}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setShowBlastingLine(!showBlastingLine)}
                       style={{
                         padding: '0.4rem 0.8rem',
@@ -2065,6 +2116,7 @@ Alamat : ${prospect.alamat || '-'}
               <LineChart
                 data={chartData}
                 showCall={showCallLine}
+                showContacted={showContactedLine}
                 showBlasting={showBlastingLine}
                 showProspek={showProspekLine}
               />
@@ -2359,11 +2411,12 @@ Alamat : ${prospect.alamat || '-'}
                 <thead>
                   <tr>
                     <th>Nama Officer</th>
-                    <th style={{ textAlign: 'center', width: '12%' }}>Call</th>
-                    <th style={{ textAlign: 'center', width: '12%' }}>Blasting</th>
-                    <th style={{ textAlign: 'center', width: '12%' }}>Prospek</th>
-                    <th style={{ textAlign: 'center', width: '15%' }}>Aplikasi IN</th>
-                    <th style={{ textAlign: 'center', width: '15%' }}>Aplikasi Valid</th>
+                    <th style={{ textAlign: 'center', width: '10%' }}>Call</th>
+                    <th style={{ textAlign: 'center', width: '10%' }}>Contacted</th>
+                    <th style={{ textAlign: 'center', width: '10%' }}>Blasting</th>
+                    <th style={{ textAlign: 'center', width: '10%' }}>Prospek</th>
+                    <th style={{ textAlign: 'center', width: '12%' }}>Aplikasi IN</th>
+                    <th style={{ textAlign: 'center', width: '12%' }}>Aplikasi Valid</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2371,6 +2424,7 @@ Alamat : ${prospect.alamat || '-'}
                     <tr key={perf.id}>
                       <td><strong>{perf.name}</strong></td>
                       <td style={{ textAlign: 'center' }}>{perf.call}</td>
+                      <td style={{ textAlign: 'center' }}>{perf.contacted}</td>
                       <td style={{ textAlign: 'center' }}>{perf.blasting}</td>
                       <td style={{ textAlign: 'center' }}>{perf.prospek}</td>
                       <td style={{ textAlign: 'center' }}>{perf.aplikasiIn}</td>
@@ -2379,7 +2433,7 @@ Alamat : ${prospect.alamat || '-'}
                   ))}
                   {performance.length === 0 && (
                     <tr>
-                      <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
+                      <td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-secondary)' }}>
                         Belum ada Officer yang terdaftar.
                       </td>
                     </tr>
@@ -3139,6 +3193,20 @@ Alamat : ${prospect.alamat || '-'}
                 </div>
 
                 <div className="form-group">
+                  <label htmlFor="contacting-contacted">Jumlah Contacted</label>
+                  <input
+                    id="contacting-contacted"
+                    type="number"
+                    min="0"
+                    className="input-control"
+                    required
+                    placeholder="Masukkan angka (contoh: 10)"
+                    value={contactingForm.contacted}
+                    onChange={(e) => setContactingForm({ ...contactingForm, contacted: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
                   <label htmlFor="contacting-blasting">Jumlah Blasting</label>
                   <input
                     id="contacting-blasting"
@@ -3437,13 +3505,14 @@ Alamat : ${prospect.alamat || '-'}
 }
 
 // Custom SVG Line Chart Component for Premium Visuals and SSR Safety
-const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = true }) => {
+const LineChart = ({ data, showCall = true, showContacted = true, showBlasting = true, showProspek = true }) => {
   if (!data || data.length === 0) return null;
 
   const maxVal = Math.max(
     ...data.map(d => {
       const vals = [];
       if (showCall) vals.push(d.call);
+      if (showContacted) vals.push(d.contacted);
       if (showBlasting) vals.push(d.blasting);
       if (showProspek) vals.push(d.prospek);
       return vals.length > 0 ? Math.max(...vals) : 0;
@@ -3464,20 +3533,22 @@ const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = t
   const points = data.map((d, i) => {
     const x = paddingLeft + (i / (data.length - 1 || 1)) * chartWidth;
     const y = paddingTop + chartHeight - (d.call / maxVal) * chartHeight;
+    const yContacted = paddingTop + chartHeight - (d.contacted / maxVal) * chartHeight;
     const yBlast = paddingTop + chartHeight - (d.blasting / maxVal) * chartHeight;
     const yProspek = paddingTop + chartHeight - (d.prospek / maxVal) * chartHeight;
-    return { x, y, yBlast, yProspek, label: d.label, call: d.call, blasting: d.blasting, prospek: d.prospek };
+    return { x, y, yContacted, yBlast, yProspek, label: d.label, call: d.call, contacted: d.contacted, blasting: d.blasting, prospek: d.prospek };
   });
 
   const getPathD = (pts, key) => {
     if (pts.length === 0) return '';
     return pts.reduce((path, p, i) => {
-      const yVal = key === 'call' ? p.y : key === 'blasting' ? p.yBlast : p.yProspek;
+      const yVal = key === 'call' ? p.y : key === 'contacted' ? p.yContacted : key === 'blasting' ? p.yBlast : p.yProspek;
       return i === 0 ? `M ${p.x} ${yVal}` : `${path} L ${p.x} ${yVal}`;
     }, '');
   };
 
   const pathCall = getPathD(points, 'call');
+  const pathContacted = getPathD(points, 'contacted');
   const pathBlasting = getPathD(points, 'blasting');
   const pathProspek = getPathD(points, 'prospek');
 
@@ -3538,6 +3609,8 @@ const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = t
         {/* Trend Lines with elegant thin strokes */}
         {/* Call: Solid Yellow */}
         {showCall && <path d={pathCall} fill="none" stroke="#ffd700" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
+        {/* Contacted: Solid Green */}
+        {showContacted && <path d={pathContacted} fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
         {/* Blasting: Solid Red */}
         {showBlasting && <path d={pathBlasting} fill="none" stroke="#ff4d4d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="chart-line" />}
         {/* Prospek: Solid Sky Blue */}
@@ -3548,6 +3621,16 @@ const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = t
           <g key={i}>
             {/* Call: Yellow Circle */}
             {showCall && <circle cx={p.x} cy={p.y} r="2.5" fill="#ffd700" stroke="#0f172a" strokeWidth="1" />}
+
+            {/* Contacted: Green Triangle */}
+            {showContacted && (
+              <polygon
+                points={`${p.x},${p.yContacted - 3.5} ${p.x + 3},${p.yContacted + 2} ${p.x - 3},${p.yContacted + 2}`}
+                fill="#10b981"
+                stroke="#0f172a"
+                strokeWidth="1"
+              />
+            )}
 
             {/* Blasting: Red Square */}
             {showBlasting && <rect x={p.x - 2.5} y={p.yBlast - 2.5} width="5" height="5" fill="#ff4d4d" stroke="#0f172a" strokeWidth="1" />}
@@ -3595,6 +3678,7 @@ const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = t
             {activePoint === p && (
               <>
                 {showCall && <circle cx={p.x} cy={p.y} r="6" fill="#ffd700" stroke="#ffffff" strokeWidth="1.5" />}
+                {showContacted && <circle cx={p.x} cy={p.yContacted} r="6" fill="#10b981" stroke="#ffffff" strokeWidth="1.5" />}
                 {showBlasting && <circle cx={p.x} cy={p.yBlast} r="6" fill="#ff4d4d" stroke="#ffffff" strokeWidth="1.5" />}
                 {showProspek && <circle cx={p.x} cy={p.yProspek} r="6" fill="#38bdf8" stroke="#ffffff" strokeWidth="1.5" />}
               </>
@@ -3618,6 +3702,7 @@ const LineChart = ({ data, showCall = true, showBlasting = true, showProspek = t
         >
           <div className="tooltip-title">{activePoint.label}</div>
           {showCall && <div className="tooltip-item"><span className="dot" style={{ background: '#ffd700' }}></span> Call: <strong>{activePoint.call}</strong></div>}
+          {showContacted && <div className="tooltip-item"><span className="dot" style={{ background: '#10b981' }}></span> Contacted: <strong>{activePoint.contacted}</strong></div>}
           {showBlasting && <div className="tooltip-item"><span className="dot" style={{ background: '#ff4d4d' }}></span> Blasting: <strong>{activePoint.blasting}</strong></div>}
           {showProspek && <div className="tooltip-item"><span className="dot" style={{ background: '#38bdf8' }}></span> Prospek: <strong>{activePoint.prospek}</strong></div>}
         </div>
