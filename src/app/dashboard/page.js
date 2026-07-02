@@ -3185,7 +3185,6 @@ Alamat : ${prospect.alamat || '-'}
                     type="number"
                     min="0"
                     className="input-control"
-                    required
                     placeholder="Masukkan angka (contoh: 15)"
                     value={contactingForm.call}
                     onChange={(e) => setContactingForm({ ...contactingForm, call: e.target.value })}
@@ -3199,7 +3198,6 @@ Alamat : ${prospect.alamat || '-'}
                     type="number"
                     min="0"
                     className="input-control"
-                    required
                     placeholder="Masukkan angka (contoh: 10)"
                     value={contactingForm.contacted}
                     onChange={(e) => setContactingForm({ ...contactingForm, contacted: e.target.value })}
@@ -3213,7 +3211,6 @@ Alamat : ${prospect.alamat || '-'}
                     type="number"
                     min="0"
                     className="input-control"
-                    required
                     placeholder="Masukkan angka (contoh: 30)"
                     value={contactingForm.blasting}
                     onChange={(e) => setContactingForm({ ...contactingForm, blasting: e.target.value })}
