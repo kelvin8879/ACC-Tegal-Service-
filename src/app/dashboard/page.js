@@ -1404,7 +1404,10 @@ export default function DashboardPage() {
 
   // Send daily performance report to WhatsApp
   const handleSendWA = () => {
-    const reportText = `Nama : ${user.name}\nCall : ${stats.countCall}\nContacted : ${stats.countContacted}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}\nAplikasi In : ${stats.countAplikasiInToday}\nAplikasi Valid : ${stats.countAplikasiValidToday}`;
+    const d = new Date();
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const dateStr = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    const reportText = `${dateStr}\nNama : ${user.name}\nCall : ${stats.countCall}\nContacted : ${stats.countContacted}\nBlasting : ${stats.countBlasting}\nProspek : ${stats.countProspek}\nAplikasi In : ${stats.countAplikasiInToday}\nAplikasi Valid : ${stats.countAplikasiValidToday}`;
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(reportText)}`;
     window.open(waUrl, '_blank');
   };
