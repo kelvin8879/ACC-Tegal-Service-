@@ -251,11 +251,11 @@ export default function DashboardPage() {
     let status = p.status;
 
     if (pipeline === 'Prospek') {
-      if (status !== 'Open' && status !== 'Close') {
+      if (status !== 'Open' && status !== 'Close' && status !== 'Flexi') {
         status = 'Open';
       }
     } else if (pipeline === 'Aplikasi IN') {
-      const validStatuses = ['Belum Melengkapi Data', 'On Progress', 'RE', 'NB', 'OV', 'DP OP', 'Open', 'Close'];
+      const validStatuses = ['Belum Melengkapi Data', 'On Progress', 'RE', 'NB', 'OV', 'DP OP', 'Open', 'Close', 'Flexi'];
       if (!validStatuses.includes(status)) {
         status = 'Open';
       }
@@ -489,7 +489,7 @@ export default function DashboardPage() {
               filteredProspects = [sanitizeProspect(item.payload), ...filteredProspects];
             }
           } else if (item.action === 'update') {
-            filteredProspects = filteredProspects.map(p => 
+            filteredProspects = filteredProspects.map(p =>
               p.id === item.targetId ? sanitizeProspect({ ...p, ...item.payload }) : p
             );
           } else if (item.action === 'delete') {
@@ -501,7 +501,7 @@ export default function DashboardPage() {
               filteredContacting = [item.payload, ...filteredContacting];
             }
           } else if (item.action === 'update') {
-            filteredContacting = filteredContacting.map(c => 
+            filteredContacting = filteredContacting.map(c =>
               c.id === item.targetId ? { ...c, ...item.payload } : c
             );
           } else if (item.action === 'delete') {
@@ -736,7 +736,7 @@ export default function DashboardPage() {
   // Submit "Lengkapi/Edit Data" (for IN)
   async function handleLengkapiData(e) {
     e.preventDefault();
-    
+
     const isOperation = isOperationProspect(selectedProspect);
 
     if (!isOperation) {
@@ -1441,7 +1441,7 @@ export default function DashboardPage() {
 
     const prospect = filteredList.find(p => p.id === selectedWaProspectId) || filteredList[0];
     const prospectDate = formatDdMmYyyy(prospect.created_at) || formatDdMmYyyy(new Date());
-    
+
     const assignedOfficer = officers.find(o => o.id === prospect.officer_id);
     const officerName = assignedOfficer?.name || user.name;
     const divisionName = (assignedOfficer?.division || user.division || 'OPERATION').toUpperCase();
@@ -2689,7 +2689,7 @@ Alamat : ${prospect.alamat || '-'}
                           <td>{formatDate(p.created_at)}</td>
                           <td style={{ fontSize: '0.85rem' }}>{p.alamat}</td>
                           <td>
-                            <span className={`badge ${p.status === 'Close' ? 'badge-danger' : 'badge-success'}`}>
+                            <span className={`badge ${p.status === 'Close' ? 'badge-danger' : p.status === 'Flexi' ? 'badge-warning' : 'badge-success'}`}>
                               {p.status || 'Open'}
                             </span>
                           </td>
@@ -2938,7 +2938,7 @@ Alamat : ${prospect.alamat || '-'}
               </div>
             </div>
 
-            <div className="responsive-table-container">
+            <div className="desktop-only responsive-table-container">
               {activeTab === 'Aplikasi Valid' ? (
                 <table className="data-table">
                   <thead>
@@ -2980,7 +2980,7 @@ Alamat : ${prospect.alamat || '-'}
                     ))}
                     {displayedProspects.length === 0 && (
                       <tr>
-                        <td colSpan="6">
+                        <td colSpan="7">
                           <div className="empty-state">
                             <div className="empty-icon">📂</div>
                             <h3>Belum ada data di tahapan ini</h3>
@@ -3040,7 +3040,7 @@ Alamat : ${prospect.alamat || '-'}
                                 {p.alamat}
                               </td>
                               <td>
-                                <span className={`badge ${p.status === 'Close' ? 'badge-danger' : 'badge-success'}`}>
+                                <span className={`badge ${p.status === 'Close' ? 'badge-danger' : p.status === 'Flexi' ? 'badge-warning' : 'badge-success'}`}>
                                   {p.status || 'Open'}
                                 </span>
                               </td>
@@ -3118,6 +3118,105 @@ Alamat : ${prospect.alamat || '-'}
                     )}
                   </tbody>
                 </table>
+              )}
+            </div>
+
+            <div className="mobile-only-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '0.65rem' }}>
+              {displayedProspects.map((p) => {
+                const hasCompletedData = isOperationProspect(p) || (p.no_reg && p.segment);
+                return (
+                  <div key={p.id} className="glass-card" style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.25rem', position: 'relative' }}>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.15rem' }}>
+                      <strong style={{ fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '0.5rem' }}>{p.nama}</strong>
+                      {activeTab === 'Prospek' ? (
+                        <button className="btn btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', height: 'auto', width: 'auto', flexShrink: 0 }} onClick={() => openEditProspek(p)}>Edit</button>
+                      ) : (
+                        <button className="btn btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', height: 'auto', width: 'auto', flexShrink: 0 }} onClick={() => activeTab === 'Aplikasi Valid' ? openDateValid(p) : openLengkapiData(p)}>Edit</button>
+                      )}
+                    </div>
+
+                    {activeTab === 'Prospek' ? (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.75rem' }}>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Pengajuan:</span> <span className="badge badge-info" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.pengajuan}</span></div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Tanggal:</span> {formatDate(p.created_at)}</div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`badge ${p.status === 'Close' ? 'badge-danger' : p.status === 'Flexi' ? 'badge-warning' : 'badge-success'}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.status || 'Open'}</span></div>
+                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><span style={{ color: 'var(--text-secondary)' }}>Alamat:</span> {p.alamat || '-'}</div>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Progress:</span> {p.progress || '-'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Catatan:</span> {formatKeterangan(p.note)}
+                        </div>
+                        <div style={{ marginTop: '0.25rem' }}>
+                          <button className="btn btn-primary" style={{ width: '100%', padding: '0.35rem', fontSize: '0.8rem' }} onClick={() => handleMoveToAplikasiIn(p)}>Aplikasi IN</button>
+                        </div>
+                      </>
+                    ) : activeTab === 'Aplikasi IN' ? (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.75rem' }}>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Segmen:</span> {p.segment ? <span className="badge badge-info" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.segment}</span> : '-'}</div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>No Reg:</span> <code>{p.no_reg || '-'}</code></div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Date IN:</span> {formatDate(p.date_in)}</div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Status:</span> <span className={`badge ${p.status === 'OV' ? 'badge-success' : p.status === 'Belum Melengkapi Data' ? 'badge-danger' : 'badge-warning'}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.status}</span></div>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Keterangan:</span> {formatKeterangan(p.keterangan)}
+                        </div>
+                        <div style={{ marginTop: '0.25rem', display: 'flex', gap: '0.5rem' }}>
+                          {hasCompletedData ? (
+                            <button className="btn btn-primary" style={{ width: '100%', padding: '0.35rem', fontSize: '0.8rem' }} onClick={() => openDateValid(p)}>Aplikasi Valid</button>
+                          ) : (
+                            <button className="btn btn-primary" style={{ width: '100%', padding: '0.35rem', fontSize: '0.8rem' }} onClick={() => openLengkapiData(p)}>Lengkapi Data</button>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem', fontSize: '0.75rem' }}>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Segmen:</span> {p.segment ? <span className="badge badge-info" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{p.segment}</span> : '-'}</div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>No Reg:</span> <code>{p.no_reg || '-'}</code></div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Date IN:</span> {formatDate(p.date_in)}</div>
+                          <div><span style={{ color: 'var(--text-secondary)' }}>Date Valid:</span> <span className="badge badge-success" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>{formatDate(p.date_valid)}</span></div>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Keterangan:</span> {formatKeterangan(p.keterangan)}
+                        </div>
+                        <div style={{ marginTop: '0.25rem' }}>
+                          <button className="btn btn-primary" style={{ width: '100%', padding: '0.35rem', fontSize: '0.8rem' }} onClick={() => openDateValid(p)}>Edit Data</button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+
+              {displayedProspects.length === 0 && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  {activeTab === 'Prospek' ? (
+                    <div
+                      className="empty-state"
+                      onClick={openAddProspek}
+                      style={{ cursor: 'pointer', padding: '2rem', transition: 'all 0.25rem ease' }}
+                    >
+                      <div className="empty-icon" style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📂</div>
+                      <h3 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Belum ada data Prospek</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                        Klik di sini untuk daftar.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="empty-state" style={{ padding: '2rem' }}>
+                      <div className="empty-icon" style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📂</div>
+                      <h3 style={{ fontSize: '1rem', marginBottom: '0.25rem' }}>Belum ada data di tahapan ini</h3>
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                        Pindahkan data dari tahap sebelumnya.
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </section>
@@ -3298,6 +3397,7 @@ Alamat : ${prospect.alamat || '-'}
                       onChange={(e) => setInputForm({ ...inputForm, status: e.target.value })}
                     >
                       <option value="Open">Open</option>
+                      <option value="Flexi">Flexi</option>
                       <option value="Close">Close</option>
                     </select>
                   </div>

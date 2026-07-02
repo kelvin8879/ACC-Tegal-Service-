@@ -473,7 +473,7 @@ select.input-control {
   gap: 1rem;
 }
 
-.mobile-card {
+.mobile-card, .mobile-only-grid {
   display: none;
 }
 
@@ -543,6 +543,9 @@ tr:hover .row-hover-btn {
   }
   .mobile-card {
     display: block;
+  }
+  .mobile-only-grid {
+    display: grid !important;
   }
   .container {
     padding: 0.75rem;
